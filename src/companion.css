@@ -1,0 +1,199 @@
+:root {
+  --ink: #191a1d;
+  --paper: #fffdf3;
+  --sprite-y: 0px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 160px;
+  height: 180px;
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  user-select: none;
+}
+
+body {
+  cursor: default;
+}
+
+.companion {
+  position: relative;
+  width: 160px;
+  height: 180px;
+}
+
+.bubble {
+  position: absolute;
+  top: 4px;
+  left: 6px;
+  z-index: 5;
+  width: 148px;
+  min-height: 30px;
+  padding: 7px 9px;
+  border: 2px solid var(--ink);
+  border-radius: 0;
+  background: var(--paper);
+  color: #20242a;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.2;
+  text-align: center;
+  box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.18);
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 140ms step-end, transform 140ms steps(2);
+  pointer-events: none;
+}
+
+.bubble::after {
+  content: "";
+  position: absolute;
+  right: 32px;
+  bottom: -8px;
+  width: 10px;
+  height: 10px;
+  border-right: 2px solid var(--ink);
+  border-bottom: 2px solid var(--ink);
+  background: var(--paper);
+  transform: rotate(45deg);
+}
+
+.bubble.is-hidden {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+.raccoon-button {
+  position: absolute;
+  right: 6px;
+  bottom: 0;
+  width: 148px;
+  height: 148px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: grab;
+}
+
+.raccoon-button:active {
+  cursor: grabbing;
+}
+
+.sprite-shadow {
+  position: absolute;
+  left: 28px;
+  bottom: 10px;
+  width: 88px;
+  height: 12px;
+  background: rgba(0, 0, 0, 0.18);
+  transform: skewX(-18deg);
+}
+
+.pixel-raccoon {
+  position: absolute;
+  left: 2px;
+  bottom: 2px;
+  width: 144px;
+  height: 144px;
+  background-image: url("./assets/raccoon-sprite.png");
+  background-repeat: no-repeat;
+  background-size: 576px 1296px;
+  background-position: 0 var(--sprite-y);
+  image-rendering: pixelated;
+  transform-origin: 50% 88%;
+  animation: spriteFrames 1.2s steps(4) infinite;
+  filter: drop-shadow(2px 4px 0 rgba(0, 0, 0, 0.18));
+}
+
+.state-idle .pixel-raccoon,
+.mood-tidy .pixel-raccoon {
+  --sprite-y: 0px;
+  animation-duration: 1.6s;
+}
+
+.state-notice .pixel-raccoon,
+.mood-missing .pixel-raccoon {
+  --sprite-y: -144px;
+  animation-duration: 520ms;
+}
+
+.state-carry .pixel-raccoon,
+.mood-curious .pixel-raccoon {
+  --sprite-y: -288px;
+  animation-duration: 760ms;
+}
+
+.state-sweep .pixel-raccoon,
+.mood-busy .pixel-raccoon {
+  --sprite-y: -432px;
+  animation-duration: 620ms;
+}
+
+.state-buried .pixel-raccoon,
+.mood-buried .pixel-raccoon {
+  --sprite-y: -576px;
+  animation-duration: 1.1s;
+}
+
+.state-celebrate .pixel-raccoon {
+  --sprite-y: -720px;
+  animation-duration: 480ms;
+}
+
+.state-sleep .pixel-raccoon {
+  --sprite-y: -864px;
+  animation-duration: 1.8s;
+}
+
+.state-think .pixel-raccoon {
+  --sprite-y: -1008px;
+  animation-duration: 820ms;
+}
+
+.state-bin .pixel-raccoon {
+  --sprite-y: -1152px;
+  animation-duration: 980ms;
+}
+
+.pupil {
+  position: absolute;
+  z-index: 3;
+  width: 5px;
+  height: 6px;
+  background: #08090b;
+  image-rendering: pixelated;
+  transform: translate(var(--look-x, 0), var(--look-y, 0));
+  transition: transform 120ms steps(2);
+  pointer-events: none;
+}
+
+.pupil-left {
+  left: 60px;
+  top: 72px;
+}
+
+.pupil-right {
+  left: 90px;
+  top: 72px;
+}
+
+.state-sleep .pupil,
+.state-bin .pupil {
+  opacity: 0;
+}
+
+@keyframes spriteFrames {
+  from {
+    background-position: 0 var(--sprite-y);
+  }
+  to {
+    background-position: -576px var(--sprite-y);
+  }
+}

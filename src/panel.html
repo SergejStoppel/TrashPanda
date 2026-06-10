@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Download Raccoon Piles</title>
+    <link rel="stylesheet" href="./panel.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="header-card">
+        <div class="mini-raccoon" aria-hidden="true"></div>
+        <div>
+          <p id="moodLabel" class="eyebrow">raccoon is sniffing</p>
+          <h1 id="headline">Raccoon found crumbs</h1>
+          <p id="folderLine" class="folder-line"></p>
+        </div>
+      </section>
+
+      <section class="stats-grid" aria-label="Download stats">
+        <article class="stat-card">
+          <span>Files</span>
+          <strong id="fileCount">0</strong>
+        </article>
+        <article class="stat-card">
+          <span>Size</span>
+          <strong id="totalSize">0 B</strong>
+        </article>
+        <article class="stat-card">
+          <span>Old crumbs</span>
+          <strong id="oldFiles">0</strong>
+        </article>
+        <article class="stat-card">
+          <span>Installers</span>
+          <strong id="installerCount">0</strong>
+        </article>
+      </section>
+
+      <section id="planCard" class="plan-card">
+        <div>
+          <p class="plan-kicker">Raccoon plan</p>
+          <strong id="planSummary">raccoon is making a tidy route</strong>
+        </div>
+        <div id="planStats" class="plan-stats"></div>
+        <div id="ruleStrip" class="rule-strip"></div>
+      </section>
+
+      <section id="trashCard" class="trash-card">
+        <div>
+          <p class="plan-kicker">Trashpanda hunches</p>
+          <strong id="trashSummary">trashpanda has no toss hunches</strong>
+        </div>
+        <div id="trashStats" class="plan-stats"></div>
+        <div id="trashList" class="trash-list"></div>
+      </section>
+
+      <section class="toolbar">
+        <button id="scanButton" type="button">Scan again</button>
+        <button id="smartPickButton" type="button">Smart picks</button>
+        <button id="oldOnlyButton" type="button">Select old files only</button>
+        <button id="noneButton" type="button">Select none</button>
+      </section>
+
+      <section id="missingFolder" class="missing-folder is-hidden">
+        <p>raccoon cannot find downloads</p>
+        <button id="chooseFolderButton" type="button">Choose folder</button>
+      </section>
+
+      <section id="pilesList" class="piles-list" aria-label="Suggested piles"></section>
+
+      <section class="action-area">
+        <button id="sortButton" class="primary-button" type="button">Sort selected files</button>
+        <p id="privacyLine">Local only. Raccoon never reads inside your files.</p>
+      </section>
+    </main>
+
+    <div id="confirmModal" class="modal is-hidden" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+      <div class="modal-card">
+        <h2 id="confirmTitle">Make tidy piles?</h2>
+        <p id="confirmCopy">Raccoon will move files into tidy piles.</p>
+        <div class="modal-actions">
+          <button id="cancelSortButton" type="button">Cancel</button>
+          <button id="confirmSortButton" class="primary-button" type="button">Sort them</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="./panel.js"></script>
+  </body>
+</html>

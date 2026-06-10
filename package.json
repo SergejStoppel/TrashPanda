@@ -1,0 +1,22 @@
+{
+  "name": "download-raccoon",
+  "version": "0.1.0",
+  "description": "A tiny desktop raccoon that watches Downloads and sorts files into tidy piles.",
+  "main": "src/main.js",
+  "scripts": {
+    "assets": "node scripts/generate-pixel-assets.js",
+    "start": "electron .",
+    "smoke": "node scripts/smoke-test.js"
+  },
+  "keywords": [
+    "electron",
+    "desktop",
+    "downloads",
+    "companion"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^42.4.0"
+  }
+}
