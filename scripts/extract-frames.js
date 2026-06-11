@@ -32,6 +32,7 @@ const SHEETS = {
   sort_to_idle_transition: { rows: [6], clips: [{ name: 'sort_to_idle', row: 0, from: 0, to: 5, fps: 4, loop: 'once' }] },
   drag_hold: {
     rows: [8],
+    unevenFrames: true,
     clips: [
       { name: 'drag_hold_loop', row: 0, from: 0, to: 3, fps: 4, loop: 'loop' },
       { name: 'drag_release', row: 0, from: 4, to: 7, fps: 4, loop: 'once' }
@@ -160,26 +161,23 @@ function bboxInWindow(img, bgm, band, wx0, wx1) {
   return { x0, y0, x1, y1 };
 }
 
-function sliceRow(img, bgm, band, n) {
+function sliceRow(img, bgm, band, n, uneven) {
   const { w } = img; const [by0, by1] = band; const bandH = by1 - by0 + 1;
   const colFg = new Array(w).fill(0);
   for (let y = by0; y <= by1; y++) { const base = y * w; for (let x = 0; x < w; x++) if (!bgm[base + x]) colFg[x]++; }
   let minX = w, maxX = 0;
   for (let x = 0; x < w; x++) if (colFg[x] > bandH * 0.02) { if (x < minX) minX = x; if (x > maxX) maxX = x; }
-  // gap-separated blobs across the content extent
-  const blobs = runs(colFg.map((c) => (c > bandH * 0.02 ? 1 : 0)), 0, Math.max(4, Math.round(w * 0.012)))
-    .filter((r) => r[1] >= minX && r[0] <= maxX);
   const windows = [];
-  if (blobs.length === n) {
+  // gap-separated blobs, only for sheets flagged as unevenly spaced (e.g. drag_hold)
+  const blobs = uneven ? runs(colFg.map((c) => (c > bandH * 0.02 ? 1 : 0)), 0, Math.max(4, Math.round(w * 0.012))).filter((r) => r[1] >= minX && r[0] <= maxX) : [];
+  const counts = (uneven && blobs.length > 1 && blobs.length !== n) ? allocateFrames(blobs, n) : null;
+  if (uneven && blobs.length === n) {
     for (const b of blobs) windows.push([b[0], b[1]]);
+  } else if (counts) {
+    blobs.forEach((b, i) => { const span = (b[1] - b[0] + 1) / counts[i]; for (let k = 0; k < counts[i]; k++) windows.push([Math.round(b[0] + k * span), Math.round(b[0] + (k + 1) * span) - 1]); });
   } else {
-    const counts = blobs.length > 1 ? allocateFrames(blobs, n) : null;
-    if (counts) {
-      blobs.forEach((b, i) => { const span = (b[1] - b[0] + 1) / counts[i]; for (let k = 0; k < counts[i]; k++) windows.push([Math.round(b[0] + k * span), Math.round(b[0] + (k + 1) * span) - 1]); });
-    } else {
-      const span = (maxX - minX + 1) / n;
-      for (let k = 0; k < n; k++) windows.push([Math.round(minX + k * span), Math.round(minX + (k + 1) * span) - 1]);
-    }
+    const span = (maxX - minX + 1) / n;
+    for (let k = 0; k < n; k++) windows.push([Math.round(minX + k * span), Math.round(minX + (k + 1) * span) - 1]);
   }
   return windows.map(([wx0, wx1]) => bboxInWindow(img, bgm, band, wx0, wx1));
 }
@@ -325,7 +323,7 @@ function main() {
     const bgm = backgroundMask(img, bg, TOL);
     const bands = findRowBands(img, bgm, cfg.rows.length);
     if (bands.length < cfg.rows.length) console.warn(`! ${base}: wanted ${cfg.rows.length} rows, found ${bands.length}`);
-    const rowFrames = bands.map((band, ri) => sliceRow(img, bgm, band, cfg.rows[ri]));
+    const rowFrames = bands.map((band, ri) => sliceRow(img, bgm, band, cfg.rows[ri], cfg.unevenFrames));
     for (const clip of cfg.clips) {
       const cells = composeForClip(img, bgm, rowFrames, clip);
       const quads = clip.name === 'photo_frame' ? cells.map((cell) => keyPhotoArea(cell, bg)) : null;

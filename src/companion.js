@@ -10,7 +10,7 @@ const DISPLAY_H = 124;
 const WIN_W = 160;
 const WIN_H = 220;
 const SPRITE_BOTTOM = 14;       // matches .sprite bottom in companion.css
-const SCALE = { drag_hold_loop: 1.5, drag_release: 1.5 };  // hanging and falling take more space
+const SCALE = { drag_hold_loop: 1.5, drag_release: 1.5, photo_frame: 1.6 };  // hanging, falling, and photo-showing take more space
 const ASSET_BASE = './assets/animations/';
 // idle-time activities cycled at random while the raccoon is resting
 const AMBIENT = ['yawn', 'read_book', 'drink_tea', 'eat_cookie', 'groom', 'look_around', 'stretch'];
@@ -42,7 +42,7 @@ let startPoint = null;
 
 // ---------- core clip player ----------
 function stopFrameTimer() {
-  if (frameTimer) { clearInterval(frameTimer); frameTimer = null; }
+  if (frameTimer) { clearTimeout(frameTimer); frameTimer = null; }
 }
 
 function play(name, options = {}) {
@@ -68,18 +68,29 @@ function play(name, options = {}) {
 
   if (anim.frames <= 1) { if (loop === 'once' && options.onEnd) options.onEnd(); return; }
 
-  frameTimer = setInterval(() => {
+  const baseDelay = Math.max(60, Math.round(1000 / (anim.fps || 4)));
+  let held = false;
+  const tick = () => {
     if (loop === 'pingpong') {
       if (index + dir < 0 || index + dir >= anim.frames) dir *= -1;
       index += dir;
+      render();
+      frameTimer = setTimeout(tick, baseDelay);
     } else if (loop === 'once') {
-      if (index >= anim.frames - 1) { stopFrameTimer(); if (options.onEnd) options.onEnd(); return; }
+      if (index >= anim.frames - 1) { frameTimer = null; if (options.onEnd) options.onEnd(); return; }
       index += 1;
+      render();
+      let delay = baseDelay;
+      // optionally linger on one frame (e.g. hold the photo up long enough to see)
+      if (!held && options.holdFrame != null && index === options.holdFrame) { held = true; delay = options.holdMs || baseDelay; }
+      frameTimer = setTimeout(tick, delay);
     } else {
       index = (index + 1) % anim.frames;
+      render();
+      frameTimer = setTimeout(tick, baseDelay);
     }
-    render();
-  }, Math.max(60, Math.round(1000 / (anim.fps || 4))));
+  };
+  frameTimer = setTimeout(tick, baseDelay);
 }
 
 // ---------- idle + ambient ----------
@@ -300,14 +311,16 @@ function warpPhoto(index) {
   const anim = manifest.photo_frame;
   const quad = photoActive && anim && anim.photoQuads ? anim.photoQuads[index] : null;
   if (!quad) { photoWarp.style.display = 'none'; return; }
-  const ow = sprite.offsetWidth, oh = sprite.offsetHeight;
+  const sRect = sprite.getBoundingClientRect();
+  const pRect = photoWarp.parentElement.getBoundingClientRect();
+  const ow = sRect.width, oh = sRect.height;
   const dst = [
     [quad.tl[0] * ow, quad.tl[1] * oh], [quad.tr[0] * ow, quad.tr[1] * oh],
     [quad.br[0] * ow, quad.br[1] * oh], [quad.bl[0] * ow, quad.bl[1] * oh]
   ];
   photoWarp.style.display = 'block';
-  photoWarp.style.left = sprite.offsetLeft + 'px';
-  photoWarp.style.top = sprite.offsetTop + 'px';
+  photoWarp.style.left = (sRect.left - pRect.left) + 'px';
+  photoWarp.style.top = (sRect.top - pRect.top) + 'px';
   photoWarp.style.width = ow + 'px';
   photoWarp.style.height = oh + 'px';
   photoWarp.style.transformOrigin = '0 0';
@@ -321,7 +334,7 @@ function showPhoto(payload) {
     photoWarpImg.src = payload.src;
     photoActive = true;
     behavior = 'photo';
-    play('photo_frame', { onFrame: warpPhoto, onEnd: () => { photoActive = false; photoWarp.style.display = 'none'; enterIdle(); } });
+    play('photo_frame', { onFrame: warpPhoto, holdFrame: 6, holdMs: 5000, onEnd: () => { photoActive = false; photoWarp.style.display = 'none'; enterIdle(); } });
     return;
   }
   // fallback overlay if the photo_frame clip is missing
