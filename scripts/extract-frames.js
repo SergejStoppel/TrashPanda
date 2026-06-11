@@ -25,6 +25,7 @@ const SHEETS = {
   greet_wave: { rows: [6], clips: [{ name: 'greet_wave', row: 0, from: 0, to: 5, fps: 4, loop: 'once' }] },
   click_react: { rows: [4], clips: [{ name: 'click_react', row: 0, from: 0, to: 3, fps: 4, loop: 'once' }] },
   present_discovery: { rows: [5], clips: [{ name: 'present_discovery', row: 0, from: 0, to: 4, fps: 4, loop: 'once' }] },
+  photo_frame: { rows: [10], clips: [{ name: 'photo_frame', row: 0, from: 0, to: 9, fps: 6, loop: 'once' }] },
   pet: { rows: [4], clips: [{ name: 'pet', row: 0, from: 0, to: 3, fps: 4, loop: 'loop' }] },
   idle_to_sort: { rows: [6], clips: [{ name: 'idle_to_sort', row: 0, from: 0, to: 5, fps: 4, loop: 'once' }] },
   sort_organize: { rows: [6], clips: [{ name: 'sort_organize', row: 0, from: 0, to: 5, fps: 3, loop: 'loop' }] },
@@ -135,24 +136,52 @@ function findRowBands(img, bgm, nRows) {
   bands = bands.slice(0, nRows).sort((a, b) => a[0] - b[0]);
   return bands;
 }
+// pick how many frames each gap-separated blob holds so the counts sum to n
+function allocateFrames(blobs, n) {
+  const widths = blobs.map((r) => r[1] - r[0] + 1);
+  const total = widths.reduce((a, b) => a + b, 0);
+  for (let unit = Math.max(1, Math.floor((total / n) * 0.55)); unit <= total; unit++) {
+    const counts = widths.map((wd) => Math.max(1, Math.round(wd / unit)));
+    if (counts.reduce((a, b) => a + b, 0) === n) return counts;
+  }
+  return null;
+}
+
+// tight bbox of the dominant blob inside a column window
+function bboxInWindow(img, bgm, band, wx0, wx1) {
+  const { w } = img; const [by0, by1] = band; const bandH = by1 - by0 + 1;
+  const sub = []; for (let x = wx0; x <= wx1; x++) { let c = 0; for (let y = by0; y <= by1; y++) if (!bgm[y * w + x]) c++; sub.push(c > bandH * 0.03 ? 1 : 0); }
+  const r = runs(sub, 0, 3);
+  const best = r.length ? r.reduce((m, c) => (c[1] - c[0] > m[1] - m[0] ? c : m)) : [0, wx1 - wx0];
+  const cx0 = wx0 + best[0], cx1 = wx0 + best[1];
+  let x0 = cx1, x1 = cx0, y0 = by1, y1 = by0;
+  for (let y = by0; y <= by1; y++) { const base = y * w; for (let x = cx0; x <= cx1; x++) if (!bgm[base + x]) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; } }
+  if (x1 < x0) { x0 = wx0; x1 = wx1; y0 = by0; y1 = by1; }
+  return { x0, y0, x1, y1 };
+}
+
 function sliceRow(img, bgm, band, n) {
   const { w } = img; const [by0, by1] = band; const bandH = by1 - by0 + 1;
   const colFg = new Array(w).fill(0);
   for (let y = by0; y <= by1; y++) { const base = y * w; for (let x = 0; x < w; x++) if (!bgm[base + x]) colFg[x]++; }
   let minX = w, maxX = 0;
   for (let x = 0; x < w; x++) if (colFg[x] > bandH * 0.02) { if (x < minX) minX = x; if (x > maxX) maxX = x; }
-  const span = (maxX - minX + 1) / n; const frames = [];
-  for (let k = 0; k < n; k++) {
-    const wx0 = Math.round(minX + k * span), wx1 = Math.round(minX + (k + 1) * span) - 1;
-    const sub = []; for (let x = wx0; x <= wx1; x++) sub.push(colFg[x] > bandH * 0.03 ? 1 : 0);
-    const r = runs(sub, 0, 3);
-    const best = r.length ? r.reduce((m, c) => (c[1] - c[0] > m[1] - m[0] ? c : m)) : [0, wx1 - wx0];
-    const cx0 = wx0 + best[0], cx1 = wx0 + best[1];
-    let x0 = cx1, x1 = cx0, y0 = by1, y1 = by0;
-    for (let y = by0; y <= by1; y++) { const base = y * w; for (let x = cx0; x <= cx1; x++) if (!bgm[base + x]) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; } }
-    frames.push({ x0, y0, x1, y1 });
+  // gap-separated blobs across the content extent
+  const blobs = runs(colFg.map((c) => (c > bandH * 0.02 ? 1 : 0)), 0, Math.max(4, Math.round(w * 0.012)))
+    .filter((r) => r[1] >= minX && r[0] <= maxX);
+  const windows = [];
+  if (blobs.length === n) {
+    for (const b of blobs) windows.push([b[0], b[1]]);
+  } else {
+    const counts = blobs.length > 1 ? allocateFrames(blobs, n) : null;
+    if (counts) {
+      blobs.forEach((b, i) => { const span = (b[1] - b[0] + 1) / counts[i]; for (let k = 0; k < counts[i]; k++) windows.push([Math.round(b[0] + k * span), Math.round(b[0] + (k + 1) * span) - 1]); });
+    } else {
+      const span = (maxX - minX + 1) / n;
+      for (let k = 0; k < n; k++) windows.push([Math.round(minX + k * span), Math.round(minX + (k + 1) * span) - 1]);
+    }
   }
-  return frames;
+  return windows.map(([wx0, wx1]) => bboxInWindow(img, bgm, band, wx0, wx1));
 }
 // compose a clip's frames into uniform full-res transparent cells, feet to baseline
 function composeCells(img, bgm, frames) {
@@ -170,6 +199,57 @@ function composeCells(img, bgm, frames) {
     }
     return { w: fw, h: fh, px: cell };
   });
+}
+
+// Detect the green photo area of a frame: returns its 4 corners (normalized
+// 0..1 of the cell) and keys the green out so a photo can show through. Used
+// only for the photo_frame clip. Returns null when there is no photo area.
+function keyPhotoArea(cell, bg) {
+  const { w, h, px } = cell;
+  const green = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const idx = y * w + x; const i = idx * 4; if (px[i + 3] === 0) continue;
+    const r = px[i], g = px[i + 1], b = px[i + 2];
+    // true chroma-key green: g clearly dominant (grey/brown/cream fail this)
+    if (g > 55 && g - r > 20 && g - b > 20) green[idx] = 1;
+  }
+  // largest connected green region = the photo area
+  const seen = new Uint8Array(w * h);
+  let best = null;
+  for (let s = 0; s < w * h; s++) {
+    if (!green[s] || seen[s]) continue;
+    const stack = [s]; seen[s] = 1; const comp = [];
+    while (stack.length) {
+      const idx = stack.pop(); comp.push(idx);
+      const x = idx % w, y = (idx / w) | 0;
+      if (x > 0 && green[idx - 1] && !seen[idx - 1]) { seen[idx - 1] = 1; stack.push(idx - 1); }
+      if (x < w - 1 && green[idx + 1] && !seen[idx + 1]) { seen[idx + 1] = 1; stack.push(idx + 1); }
+      if (y > 0 && green[idx - w] && !seen[idx - w]) { seen[idx - w] = 1; stack.push(idx - w); }
+      if (y < h - 1 && green[idx + w] && !seen[idx + w]) { seen[idx + w] = 1; stack.push(idx + w); }
+    }
+    if (!best || comp.length > best.length) best = comp;
+  }
+  // key out all green so no fringe remains
+  for (let idx = 0; idx < w * h; idx++) if (green[idx]) { const i = idx * 4; px[i] = px[i + 1] = px[i + 2] = px[i + 3] = 0; }
+  if (!best || best.length < w * h * 0.012) return null;
+  let tlx = 0, tly = 0, trx = 0, try_ = 0, brx = 0, bry = 0, blx = 0, bly = 0;
+  let tlS = Infinity, brS = -Infinity, trD = -Infinity, blD = Infinity;
+  let minX = w, maxX = 0, minY = h, maxY = 0;
+  for (const idx of best) {
+    const x = idx % w, y = (idx / w) | 0;
+    if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y;
+    const sum = x + y, diff = x - y;
+    if (sum < tlS) { tlS = sum; tlx = x; tly = y; }
+    if (sum > brS) { brS = sum; brx = x; bry = y; }
+    if (diff > trD) { trD = diff; trx = x; try_ = y; }
+    if (diff < blD) { blD = diff; blx = x; bly = y; }
+  }
+  const bboxArea = (maxX - minX + 1) * (maxY - minY + 1);
+  if (best.length / bboxArea < 0.45) return null; // thin/scattered, not a solid quad
+  return {
+    tl: [tlx / w, tly / h], tr: [trx / w, try_ / h],
+    br: [brx / w, bry / h], bl: [blx / w, bly / h]
+  };
 }
 
 // ---------- pixelize ----------
@@ -241,13 +321,15 @@ function main() {
   for (const base of order) {
     const cfg = SHEETS[base];
     const img = decodePng(fs.readFileSync(path.join(SRC_DIR, base + '.png')));
-    const bgm = backgroundMask(img, medianBorder(img), TOL);
+    const bg = medianBorder(img);
+    const bgm = backgroundMask(img, bg, TOL);
     const bands = findRowBands(img, bgm, cfg.rows.length);
     if (bands.length < cfg.rows.length) console.warn(`! ${base}: wanted ${cfg.rows.length} rows, found ${bands.length}`);
     const rowFrames = bands.map((band, ri) => sliceRow(img, bgm, band, cfg.rows[ri]));
     for (const clip of cfg.clips) {
       const cells = composeForClip(img, bgm, rowFrames, clip);
-      clipCells[clip.name] = { cells, clip, base };
+      const quads = clip.name === 'photo_frame' ? cells.map((cell) => keyPhotoArea(cell, bg)) : null;
+      clipCells[clip.name] = { cells, clip, base, quads };
       for (const cell of cells) for (let i = 0; i < cell.w * cell.h; i += 7) { const d = i * 4; if (cell.px[d + 3]) samples.push([cell.px[d], cell.px[d + 1], cell.px[d + 2]]); }
     }
   }
@@ -258,7 +340,7 @@ function main() {
   const manifest = {};
   const report = [];
   for (const name of Object.keys(clipCells)) {
-    const { cells, clip } = clipCells[name];
+    const { cells, clip, quads } = clipCells[name];
     const smalls = cells.map(c => applyPalette(downsample(c, PIXEL_H), palette));
     const fw = Math.max(...smalls.map(c => c.w)), fh = PIXEL_H, n = smalls.length;
     const strip = Buffer.alloc(fw * n * fh * 4);
@@ -277,6 +359,7 @@ function main() {
     });
     fs.writeFileSync(path.join(OUT_DIR, name + '.png'), encodePng(fw * n, fh, strip));
     manifest[name] = { frames: n, frameWidth: fw, frameHeight: fh, fps: clip.fps, loop: clip.loop, strip: `frames/${name}.png` };
+    if (quads) manifest[name].photoQuads = quads;
     report.push(`${name.padEnd(20)} ${n}f  ${fw}x${fh}  ${clip.loop}/${clip.fps}fps`);
   }
   fs.writeFileSync(path.join(SRC_DIR, 'animations.json'), JSON.stringify(manifest, null, 2));

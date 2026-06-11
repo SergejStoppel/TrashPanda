@@ -3,6 +3,8 @@ const bubble = document.getElementById('bubble');
 const sprite = document.getElementById('sprite');
 const photoFrame = document.getElementById('photoFrame');
 const photoImg = document.getElementById('photoImg');
+const photoWarp = document.getElementById('photoWarp');
+const photoWarpImg = document.getElementById('photoWarpImg');
 
 const DISPLAY_H = 124;
 const WIN_W = 160;
@@ -32,6 +34,7 @@ let holdTimer = null;
 let sortTimer = null;
 let bubbleTimer = null;
 let photoTimer = null;
+let photoActive = false;
 
 let pointerActive = false;
 let pointerMoved = false;
@@ -47,6 +50,7 @@ function play(name, options = {}) {
   if (!anim) { if (name !== base && manifest[base]) play(base, options); return; }
   current = name;
   stopFrameTimer();
+  if (name !== 'photo_frame' && photoActive) { photoActive = false; photoWarp.style.display = 'none'; }
 
   const dispH = Math.round(DISPLAY_H * (SCALE[name] || 1));
   const scale = dispH / anim.frameHeight;
@@ -59,7 +63,7 @@ function play(name, options = {}) {
   const loop = options.loopOverride || anim.loop;
   let index = 0;
   let dir = 1;
-  const render = () => { sprite.style.backgroundPositionX = `-${index * cellW}px`; };
+  const render = () => { sprite.style.backgroundPositionX = `-${index * cellW}px`; if (options.onFrame) options.onFrame(index); };
   render();
 
   if (anim.frames <= 1) { if (loop === 'once' && options.onEnd) options.onEnd(); return; }
@@ -278,20 +282,54 @@ window.addEventListener('contextmenu', (event) => { event.preventDefault(); wind
 
 // The raccoon intentionally stays still and does not follow the cursor.
 
+// ---------- perspective photo tracked into the frame ----------
+function projAdj(m) { return [m[4] * m[8] - m[5] * m[7], m[2] * m[7] - m[1] * m[8], m[1] * m[5] - m[2] * m[4], m[5] * m[6] - m[3] * m[8], m[0] * m[8] - m[2] * m[6], m[2] * m[3] - m[0] * m[5], m[3] * m[7] - m[4] * m[6], m[1] * m[6] - m[0] * m[7], m[0] * m[4] - m[1] * m[3]]; }
+function projMul(a, b) { const c = []; for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) { let s = 0; for (let k = 0; k < 3; k++) s += a[3 * i + k] * b[3 * k + j]; c[3 * i + j] = s; } return c; }
+function projMulV(m, v) { return [m[0] * v[0] + m[1] * v[1] + m[2] * v[2], m[3] * v[0] + m[4] * v[1] + m[5] * v[2], m[6] * v[0] + m[7] * v[1] + m[8] * v[2]]; }
+function projBasis(x1, y1, x2, y2, x3, y3, x4, y4) { const m = [x1, x2, x3, y1, y2, y3, 1, 1, 1]; const v = projMulV(projAdj(m), [x4, y4, 1]); return projMul(m, [v[0], 0, 0, 0, v[1], 0, 0, 0, v[2]]); }
+// CSS matrix3d mapping the box (0,0)-(srcW,srcH) onto dst corners [TL,TR,BR,BL]
+function quadTransform(srcW, srcH, d) {
+  const s = projBasis(0, 0, srcW, 0, 0, srcH, srcW, srcH);
+  const t = projBasis(d[0][0], d[0][1], d[1][0], d[1][1], d[3][0], d[3][1], d[2][0], d[2][1]);
+  const m = projMul(t, projAdj(s));
+  for (let i = 0; i < 9; i++) m[i] /= m[8];
+  return `matrix3d(${m[0]},${m[3]},0,${m[6]},${m[1]},${m[4]},0,${m[7]},0,0,1,0,${m[2]},${m[5]},0,${m[8]})`;
+}
+
+function warpPhoto(index) {
+  const anim = manifest.photo_frame;
+  const quad = photoActive && anim && anim.photoQuads ? anim.photoQuads[index] : null;
+  if (!quad) { photoWarp.style.display = 'none'; return; }
+  const ow = sprite.offsetWidth, oh = sprite.offsetHeight;
+  const dst = [
+    [quad.tl[0] * ow, quad.tl[1] * oh], [quad.tr[0] * ow, quad.tr[1] * oh],
+    [quad.br[0] * ow, quad.br[1] * oh], [quad.bl[0] * ow, quad.bl[1] * oh]
+  ];
+  photoWarp.style.display = 'block';
+  photoWarp.style.left = sprite.offsetLeft + 'px';
+  photoWarp.style.top = sprite.offsetTop + 'px';
+  photoWarp.style.width = ow + 'px';
+  photoWarp.style.height = oh + 'px';
+  photoWarp.style.transformOrigin = '0 0';
+  photoWarp.style.transform = quadTransform(ow, oh, dst);
+}
+
 function showPhoto(payload) {
   if (!payload || !payload.src) return;
+  resetInactivity();
+  if (manifest.photo_frame) {
+    photoWarpImg.src = payload.src;
+    photoActive = true;
+    behavior = 'photo';
+    play('photo_frame', { onFrame: warpPhoto, onEnd: () => { photoActive = false; photoWarp.style.display = 'none'; enterIdle(); } });
+    return;
+  }
+  // fallback overlay if the photo_frame clip is missing
   photoImg.src = payload.src;
   photoFrame.classList.remove('is-hidden');
-  resetInactivity();
-  // once a photo_frame clip exists, play it so the raccoon presents the photo
-  if (manifest.photo_frame) { behavior = 'photo'; play('photo_frame', { onEnd: enterIdle }); }
   if (photoTimer) clearTimeout(photoTimer);
   const seconds = Math.max(3, Number(payload.seconds) || 9);
-  photoTimer = setTimeout(() => {
-    photoFrame.classList.add('is-hidden');
-    photoImg.src = '';
-    if (behavior === 'photo') enterIdle();
-  }, seconds * 1000);
+  photoTimer = setTimeout(() => { photoFrame.classList.add('is-hidden'); photoImg.src = ''; }, seconds * 1000);
 }
 window.raccoon.onShowPhoto(showPhoto);
 
