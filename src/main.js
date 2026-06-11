@@ -17,6 +17,7 @@ const { isHiddenFileName, isTemporaryDownload, PILES_FOLDER_NAME } = require('./
 const { moveFiles } = require('./services/fileMover');
 const { SettingsStore } = require('./services/settingsStore');
 const { HistoryStore } = require('./services/historyStore');
+const photoFrame = require('./services/photoFrame');
 
 const COMPANION_WIDTH = 160;
 const COMPANION_HEIGHT = 220;
@@ -37,6 +38,7 @@ let dragHangAnchor = null;
 let lastNewFileNoticeAt = 0;
 let reactionTimers = [];
 let animationManifest = {};
+let photoFrameTimer = null;
 const pendingFilePaths = new Set();
 const singleInstanceLock = app.requestSingleInstanceLock();
 
@@ -433,6 +435,68 @@ function setPinned(pinned) {
   return settingsStore.get();
 }
 
+function showPhotoFrame(force = false) {
+  const settings = settingsStore.get();
+  if (!force && !settings.photoFrameEnabled) return false;
+  if (!settings.photoFolder) return false;
+  if (!companionWindow || companionWindow.isDestroyed() || settings.companionHidden) return false;
+  return (async () => {
+    const pick = await photoFrame.pickRandomPhoto(settings.photoFolder, { recursive: true });
+    if (!pick) return false;
+    const src = await photoFrame.readPhotoDataUrl(pick.fullPath);
+    if (!src) return false;
+    companionWindow.webContents.send('companion:show-photo', {
+      src,
+      fileName: pick.fileName,
+      seconds: Number(settings.photoFrameSeconds ?? 9)
+    });
+    return true;
+  })();
+}
+
+function stopPhotoFrameTimer() {
+  if (photoFrameTimer) {
+    clearTimeout(photoFrameTimer);
+    photoFrameTimer = null;
+  }
+}
+
+function startPhotoFrameTimer() {
+  stopPhotoFrameTimer();
+  const settings = settingsStore.get();
+  if (!settings.photoFrameEnabled || !settings.photoFolder) return;
+  const minMs = Math.max(2, Number(settings.photoFrameMinMinutes ?? 25)) * 60 * 1000;
+  const jitter = minMs * 0.5 * Math.random();
+  photoFrameTimer = setTimeout(async () => {
+    await showPhotoFrame(false);
+    startPhotoFrameTimer();
+  }, minMs + jitter);
+}
+
+async function linkPhotoFolder() {
+  const result = await dialog.showOpenDialog(panelWindow || undefined, {
+    title: 'Link a photo folder for the raccoon to show',
+    properties: ['openDirectory']
+  });
+  if (result.canceled || !result.filePaths[0]) return settingsStore.get();
+  settingsStore.update({ photoFolder: result.filePaths[0], photoFrameEnabled: true });
+  updateTrayMenu();
+  sendSettingsUpdate();
+  startPhotoFrameTimer();
+  showPhotoFrame(true);
+  sendCompanionUpdate({ bubble: 'photo folder linked, I will show you photos now and then' });
+  return settingsStore.get();
+}
+
+function setPhotoFrameEnabled(enabled) {
+  settingsStore.update({ photoFrameEnabled: Boolean(enabled) });
+  updateTrayMenu();
+  sendSettingsUpdate();
+  if (enabled) startPhotoFrameTimer();
+  else stopPhotoFrameTimer();
+  return settingsStore.get();
+}
+
 function updateTrayMenu() {
   if (!tray) {
     return;
@@ -462,6 +526,10 @@ function updateTrayMenu() {
     {
       label: 'Analyze a folder...',
       click: () => analyzeFolder()
+    },
+    {
+      label: settings.photoFrameEnabled ? 'Turn off photo frame' : 'Link a photo folder...',
+      click: () => (settings.photoFrameEnabled ? setPhotoFrameEnabled(false) : linkPhotoFolder())
     },
     {
       label: settings.watchingPaused ? 'Resume watching downloads' : 'Pause watching downloads',
@@ -504,6 +572,10 @@ function showCompanionContextMenu() {
     {
       label: 'Analyze a folder...',
       click: () => analyzeFolder()
+    },
+    {
+      label: settings.photoFrameEnabled ? 'Show a photo now' : 'Link a photo folder...',
+      click: () => (settings.photoFrameEnabled ? showPhotoFrame(true) : linkPhotoFolder())
     },
     { type: 'separator' },
     {
@@ -743,6 +815,9 @@ function registerIpcHandlers() {
   ipcMain.handle('panel:scan-now', async () => performScan('manual'));
   ipcMain.handle('panel:analyze-folder', async () => analyzeFolder());
   ipcMain.handle('companion:get-animations', () => animationManifest);
+  ipcMain.handle('photo:link-folder', async () => linkPhotoFolder());
+  ipcMain.handle('photo:set-enabled', (_event, enabled) => setPhotoFrameEnabled(enabled));
+  ipcMain.handle('photo:show-now', async () => showPhotoFrame(true));
 
   ipcMain.handle('panel:sort-files', async (_event, payload) => {
     const fileIds = Array.isArray(payload?.fileIds) ? payload.fileIds : [];
@@ -818,6 +893,7 @@ if (!singleInstanceLock) {
     registerIpcHandlers();
     createTray();
     createCompanionWindow();
+    startPhotoFrameTimer();
     currentScanResult = await performScan('startup');
     sendCompanionMood(currentScanResult);
     startWatcher();

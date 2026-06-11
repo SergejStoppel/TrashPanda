@@ -109,3 +109,33 @@ body {
   image-rendering: pixelated;
   filter: drop-shadow(1px 3px 0 rgba(0, 0, 0, 0.14));
 }
+
+/* Placeholder photo frame. Will be replaced by the photo_frame animation,
+   compositing the photo into the frame's picture area, once that art exists. */
+.photo-frame {
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  z-index: 6;
+  transform: translateX(-50%);
+  padding: 5px 5px 12px;
+  background: #f6f0df;
+  border: 2px solid #232a20;
+  border-radius: 4px;
+  box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.22);
+  transition: opacity 160ms steps(2);
+}
+
+.photo-frame img {
+  display: block;
+  width: 138px;
+  height: auto;
+  max-height: 120px;
+  object-fit: cover;
+  border: 1px solid #c9bf9f;
+}
+
+.photo-frame.is-hidden {
+  opacity: 0;
+  pointer-events: none;
+}

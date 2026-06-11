@@ -183,6 +183,8 @@ async function scanDownloads(settings) {
   const files = result.categories.flatMap((category) => category.files);
   applyDuplicateHints(files);
 
+  const siblingDirs = new Set(entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name.toLowerCase()));
+
   for (const category of result.categories) {
     for (const file of category.files) {
       try {
@@ -191,7 +193,8 @@ async function scanDownloads(settings) {
           file,
           stats,
           settings,
-          now
+          now,
+          siblingDirs
         });
       } catch {
         file.trashRecommendation = {

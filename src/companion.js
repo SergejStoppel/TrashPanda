@@ -1,6 +1,8 @@
 const button = document.getElementById('raccoonButton');
 const bubble = document.getElementById('bubble');
 const sprite = document.getElementById('sprite');
+const photoFrame = document.getElementById('photoFrame');
+const photoImg = document.getElementById('photoImg');
 
 const DISPLAY_H = 124;
 const WIN_W = 160;
@@ -29,6 +31,7 @@ let inactivityTimer = null;
 let holdTimer = null;
 let sortTimer = null;
 let bubbleTimer = null;
+let photoTimer = null;
 
 let pointerActive = false;
 let pointerMoved = false;
@@ -274,6 +277,23 @@ button.addEventListener('dblclick', () => window.raccoon.openPanel());
 window.addEventListener('contextmenu', (event) => { event.preventDefault(); window.raccoon.showContextMenu(); });
 
 // The raccoon intentionally stays still and does not follow the cursor.
+
+function showPhoto(payload) {
+  if (!payload || !payload.src) return;
+  photoImg.src = payload.src;
+  photoFrame.classList.remove('is-hidden');
+  resetInactivity();
+  // once a photo_frame clip exists, play it so the raccoon presents the photo
+  if (manifest.photo_frame) { behavior = 'photo'; play('photo_frame', { onEnd: enterIdle }); }
+  if (photoTimer) clearTimeout(photoTimer);
+  const seconds = Math.max(3, Number(payload.seconds) || 9);
+  photoTimer = setTimeout(() => {
+    photoFrame.classList.add('is-hidden');
+    photoImg.src = '';
+    if (behavior === 'photo') enterIdle();
+  }, seconds * 1000);
+}
+window.raccoon.onShowPhoto(showPhoto);
 
 window.raccoon.getAnimations().then(applyManifest).catch(() => {});
 window.raccoon.onAnimations(applyManifest);

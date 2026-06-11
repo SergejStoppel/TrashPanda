@@ -22,10 +22,14 @@ contextBridge.exposeInMainWorld('raccoon', {
   chooseFolder: () => ipcRenderer.invoke('panel:choose-folder'),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setPaused: (paused) => ipcRenderer.invoke('settings:set-paused', paused),
+  linkPhotoFolder: () => ipcRenderer.invoke('photo:link-folder'),
+  setPhotoFrame: (enabled) => ipcRenderer.invoke('photo:set-enabled', enabled),
+  showPhotoNow: () => ipcRenderer.invoke('photo:show-now'),
   onCompanionUpdate: (callback) => subscribe('companion:update', callback),
   onAnimations: (callback) => subscribe('companion:animations', callback),
   onCursor: (callback) => subscribe('companion:cursor', callback),
   onScanResult: (callback) => subscribe('panel:scan-result', callback),
   onSortResult: (callback) => subscribe('panel:sort-result', callback),
-  onSettings: (callback) => subscribe('settings:update', callback)
+  onSettings: (callback) => subscribe('settings:update', callback),
+  onShowPhoto: (callback) => subscribe('companion:show-photo', callback)
 });

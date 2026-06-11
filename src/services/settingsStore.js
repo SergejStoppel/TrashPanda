@@ -16,6 +16,12 @@ function buildDefaults(defaultDownloadsFolder = path.join(os.homedir(), 'Downloa
     trashOldArchiveDays: 120,
     trashOldScreenshotDays: 60,
     trashStaleAccessDays: 90,
+    trashStaleDays: 365,
+    agedMediaBytes: 52428800,
+    photoFolder: null,
+    photoFrameEnabled: false,
+    photoFrameMinMinutes: 25,
+    photoFrameSeconds: 9,
     lastClutterNotificationDate: null
   };
 }
