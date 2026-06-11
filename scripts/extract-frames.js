@@ -1,42 +1,51 @@
 'use strict';
-/*
- * Extracts individual animation frames from the labeled sprite sheets in
- * src/assets/animations/*.png (title on top, a row of numbered frames in the
- * middle, captions below, all on a green background).
- *
- * For each sheet it:
- *   1. keys out the green background with a border flood fill (interior green,
- *      like a tea cup, is preserved),
- *   2. isolates the middle frame row and skips the title and caption text,
- *   3. detects the individual frames by column gaps,
- *   4. normalizes them to one cell size, anchored feet-to-baseline,
- *   5. writes a transparent horizontal strip plus individual frame PNGs,
- *   6. updates animations.json with frame count, cell size, fps, and loop.
- *
- * Pure Node, no dependencies, so it runs anywhere the project does.
- *   node scripts/extract-frames.js
- */
 const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
 
 const SRC_DIR = path.join(__dirname, '..', 'src', 'assets', 'animations');
 const OUT_DIR = path.join(SRC_DIR, 'frames');
+const PIXEL_H = 96;        // logical frame height every clip is normalized to
+const PALETTE_SIZE = 64;   // shared colour palette size
+const PAD = 6;             // transparent padding inside each cell (source px)
+const TOL = 72;            // background match tolerance
+const ALPHA_CUT = 128;     // edge hardness after downsample
 
-// Per-sheet playback metadata (not visually detectable). Keyed by file base name.
-const META = {
-  idle_breath: { name: 'idle_breathe', fps: 2, loop: 'pingpong', frames: 4 },
-  drink_tea: { name: 'drink_tea', fps: 2, loop: 'once', frames: 5 },
-  read_book: { name: 'read_book', fps: 2, loop: 'loop', frames: 4 },
-  eat_cookie: { name: 'eat_cookie', fps: 3, loop: 'loop', frames: 4 },
-  groom: { name: 'groom', fps: 3, loop: 'loop', frames: 4 },
-  look_around: { name: 'look_around', fps: 2, loop: 'loop', frames: 4 },
-  stretch: { name: 'stretch', fps: 3, loop: 'once', frames: 4 }
+// rows = frames per character row (length = number of rows on the sheet)
+// clips = named animations sliced out of those rows
+const SHEETS = {
+  idle_breath: { rows: [4], master: true, clips: [{ name: 'idle_breathe', row: 0, from: 0, to: 3, fps: 2, loop: 'pingpong' }] },
+  drink_tea: { rows: [5], clips: [{ name: 'drink_tea', row: 0, from: 0, to: 4, fps: 2, loop: 'once' }] },
+  read_book: { rows: [4], clips: [{ name: 'read_book', row: 0, from: 0, to: 3, fps: 2, loop: 'loop' }] },
+  eat_cookie: { rows: [4], clips: [{ name: 'eat_cookie', row: 0, from: 0, to: 3, fps: 3, loop: 'loop' }] },
+  groom: { rows: [4], clips: [{ name: 'groom', row: 0, from: 0, to: 3, fps: 3, loop: 'loop' }] },
+  look_around: { rows: [4], clips: [{ name: 'look_around', row: 0, from: 0, to: 3, fps: 2, loop: 'loop' }] },
+  stretch: { rows: [4], clips: [{ name: 'stretch', row: 0, from: 0, to: 3, fps: 3, loop: 'once' }] },
+  ywan: { rows: [4], clips: [{ name: 'yawn', row: 0, from: 0, to: 3, fps: 3, loop: 'once' }] },
+  greet_wave: { rows: [6], clips: [{ name: 'greet_wave', row: 0, from: 0, to: 5, fps: 4, loop: 'once' }] },
+  click_react: { rows: [4], clips: [{ name: 'click_react', row: 0, from: 0, to: 3, fps: 4, loop: 'once' }] },
+  present_discovery: { rows: [5], clips: [{ name: 'present_discovery', row: 0, from: 0, to: 4, fps: 4, loop: 'once' }] },
+  pet: { rows: [4], clips: [{ name: 'pet', row: 0, from: 0, to: 3, fps: 4, loop: 'loop' }] },
+  idle_to_sort: { rows: [6], clips: [{ name: 'idle_to_sort', row: 0, from: 0, to: 5, fps: 4, loop: 'once' }] },
+  sort_organize: { rows: [6], clips: [{ name: 'sort_organize', row: 0, from: 0, to: 5, fps: 3, loop: 'loop' }] },
+  sort_to_idle_transition: { rows: [6], clips: [{ name: 'sort_to_idle', row: 0, from: 0, to: 5, fps: 4, loop: 'once' }] },
+  drag_hold: {
+    rows: [8],
+    clips: [
+      { name: 'drag_hold_loop', row: 0, from: 0, to: 3, fps: 4, loop: 'loop' },
+      { name: 'drag_release', row: 0, from: 4, to: 7, fps: 4, loop: 'once' }
+    ]
+  },
+  idle_to_sleep: {
+    rows: [8, 8],
+    clips: [
+      { name: 'idle_to_sleep', row: 0, from: 0, to: 7, fps: 3, loop: 'once' },
+      { name: 'sleep_to_idle', row: 1, from: 0, to: 7, fps: 3, loop: 'once' }
+    ]
+  }
 };
-const TOL = 72;   // background colour match tolerance
-const PAD = 8;    // transparent padding inside each cell
 
-// ---------- PNG decode (filters 0-4, color types 2/6, 8-bit, non-interlaced) ----------
+// ---------- PNG decode ----------
 function decodePng(buf) {
   if (buf.readUInt32BE(0) !== 0x89504e47) throw new Error('not a png');
   let o = 8, w, h, ct, idat = [];
@@ -46,46 +55,36 @@ function decodePng(buf) {
     const data = buf.slice(o + 8, o + 8 + len);
     if (type === 'IHDR') {
       w = data.readUInt32BE(0); h = data.readUInt32BE(4);
-      if (data[8] !== 8) throw new Error('bit depth ' + data[8] + ' unsupported');
-      if (data[12] !== 0) throw new Error('interlaced png unsupported');
+      if (data[8] !== 8) throw new Error('bit depth unsupported');
+      if (data[12] !== 0) throw new Error('interlaced unsupported');
       ct = data[9];
     } else if (type === 'IDAT') idat.push(data);
     else if (type === 'IEND') break;
     o += 12 + len;
   }
   const raw = zlib.inflateSync(Buffer.concat(idat));
-  const ch = ct === 6 ? 4 : ct === 2 ? 3 : (() => { throw new Error('color type ' + ct + ' unsupported'); })();
-  const stride = w * ch;
-  const out = Buffer.alloc(w * h * 4);
+  const ch = ct === 6 ? 4 : ct === 2 ? 3 : (() => { throw new Error('color type ' + ct); })();
+  const stride = w * ch, out = Buffer.alloc(w * h * 4);
   const cur = Buffer.alloc(stride), prev = Buffer.alloc(stride);
   let p = 0;
   for (let y = 0; y < h; y++) {
     const f = raw[p++];
     for (let i = 0; i < stride; i++) {
       let v = raw[p++];
-      const a = i >= ch ? cur[i - ch] : 0;
-      const b = prev[i];
-      const c = i >= ch ? prev[i - ch] : 0;
+      const a = i >= ch ? cur[i - ch] : 0, b = prev[i], c = i >= ch ? prev[i - ch] : 0;
       if (f === 1) v = (v + a) & 255;
       else if (f === 2) v = (v + b) & 255;
       else if (f === 3) v = (v + ((a + b) >> 1)) & 255;
-      else if (f === 4) {
-        const pp = a + b - c, pa = Math.abs(pp - a), pb = Math.abs(pp - b), pc = Math.abs(pp - c);
-        v = (v + (pa <= pb && pa <= pc ? a : pb <= pc ? b : c)) & 255;
-      }
+      else if (f === 4) { const pp = a + b - c, pa = Math.abs(pp - a), pb = Math.abs(pp - b), pc = Math.abs(pp - c); v = (v + (pa <= pb && pa <= pc ? a : pb <= pc ? b : c)) & 255; }
       cur[i] = v;
     }
-    for (let x = 0; x < w; x++) {
-      const s = x * ch, d = (y * w + x) * 4;
-      out[d] = cur[s]; out[d + 1] = cur[s + 1]; out[d + 2] = cur[s + 2];
-      out[d + 3] = ch === 4 ? cur[s + 3] : 255;
-    }
+    for (let x = 0; x < w; x++) { const s = x * ch, d = (y * w + x) * 4; out[d] = cur[s]; out[d + 1] = cur[s + 1]; out[d + 2] = cur[s + 2]; out[d + 3] = ch === 4 ? cur[s + 3] : 255; }
     cur.copy(prev);
   }
   return { w, h, px: out };
 }
 
-// ---------- PNG encode (RGBA) ----------
+// ---------- PNG encode ----------
 const crcT = (() => { const t = new Uint32Array(256); for (let i = 0; i < 256; i++) { let v = i; for (let b = 0; b < 8; b++) v = v & 1 ? 0xedb88320 ^ (v >>> 1) : v >>> 1; t[i] = v >>> 0; } return t; })();
 function crc(b) { let c = 0xffffffff; for (const x of b) c = crcT[(c ^ x) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; }
 function chunk(t, d) { const tt = Buffer.from(t), l = Buffer.alloc(4), cc = Buffer.alloc(4); l.writeUInt32BE(d.length, 0); cc.writeUInt32BE(crc(Buffer.concat([tt, d])), 0); return Buffer.concat([l, tt, d, cc]); }
@@ -96,38 +95,27 @@ function encodePng(w, h, px) {
   return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ih), chunk('IDAT', zlib.deflateSync(raw, { level: 9 })), chunk('IEND', Buffer.alloc(0))]);
 }
 
-// ---------- extraction ----------
+// ---------- background + bands ----------
 function dist2(px, i, c) { const dr = px[i] - c[0], dg = px[i + 1] - c[1], db = px[i + 2] - c[2]; return dr * dr + dg * dg + db * db; }
-
 function medianBorder(img) {
   const { w, h, px } = img; const rs = [], gs = [], bs = [];
-  const samp = (x, y) => { const i = (y * w + x) * 4; rs.push(px[i]); gs.push(px[i + 1]); bs.push(px[i + 2]); };
-  for (let x = 0; x < w; x += 4) { samp(x, 0); samp(x, h - 1); }
-  for (let y = 0; y < h; y += 4) { samp(0, y); samp(w - 1, y); }
-  const med = a => a.sort((p, q) => p - q)[a.length >> 1];
-  return [med(rs), med(gs), med(bs)];
+  const s = (x, y) => { const i = (y * w + x) * 4; rs.push(px[i]); gs.push(px[i + 1]); bs.push(px[i + 2]); };
+  for (let x = 0; x < w; x += 4) { s(x, 0); s(x, h - 1); }
+  for (let y = 0; y < h; y += 4) { s(0, y); s(w - 1, y); }
+  const m = a => a.sort((p, q) => p - q)[a.length >> 1];
+  return [m(rs), m(gs), m(bs)];
 }
-
 function backgroundMask(img, bg, tol) {
-  const { w, h, px } = img; const tol2 = tol * tol;
-  const bgm = new Uint8Array(w * h);
-  const stack = [];
+  const { w, h, px } = img; const tol2 = tol * tol; const bgm = new Uint8Array(w * h); const stack = [];
   const push = (x, y) => { if (x < 0 || y < 0 || x >= w || y >= h) return; const idx = y * w + x; if (bgm[idx]) return; if (dist2(px, idx * 4, bg) <= tol2) { bgm[idx] = 1; stack.push(idx); } };
   for (let x = 0; x < w; x++) { push(x, 0); push(x, h - 1); }
   for (let y = 0; y < h; y++) { push(0, y); push(w - 1, y); }
   while (stack.length) { const idx = stack.pop(); const x = idx % w, y = (idx / w) | 0; push(x + 1, y); push(x - 1, y); push(x, y + 1); push(x, y - 1); }
-  // one halo-trim pass: green-ish fringe pixels touching background become background
-  const fringe2 = (tol * 1.5) * (tol * 1.5);
-  const add = [];
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-    const idx = y * w + x; if (bgm[idx]) continue;
-    if (dist2(px, idx * 4, bg) > fringe2) continue;
-    if ((x > 0 && bgm[idx - 1]) || (x < w - 1 && bgm[idx + 1]) || (y > 0 && bgm[idx - w]) || (y < h - 1 && bgm[idx + w])) add.push(idx);
-  }
+  const fr2 = (tol * 1.5) * (tol * 1.5); const add = [];
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const idx = y * w + x; if (bgm[idx]) continue; if (dist2(px, idx * 4, bg) > fr2) continue; if ((x > 0 && bgm[idx - 1]) || (x < w - 1 && bgm[idx + 1]) || (y > 0 && bgm[idx - w]) || (y < h - 1 && bgm[idx + w])) add.push(idx); }
   for (const idx of add) bgm[idx] = 1;
   return bgm;
 }
-
 function runs(vals, thr, minGap) {
   const out = []; let start = -1, gap = 0;
   for (let i = 0; i < vals.length; i++) {
@@ -137,33 +125,26 @@ function runs(vals, thr, minGap) {
   if (start >= 0) out.push([start, vals.length - 1]);
   return out;
 }
-
-function extractSheet(img, expectedN) {
-  const bg = medianBorder(img);
-  const bgm = backgroundMask(img, bg, TOL);
+function findRowBands(img, bgm, nRows) {
   const { w, h } = img;
   const rowFg = new Array(h).fill(0);
   for (let y = 0; y < h; y++) { let c = 0; const base = y * w; for (let x = 0; x < w; x++) if (!bgm[base + x]) c++; rowFg[y] = c; }
-  const bands = runs(rowFg, w * 0.015, Math.round(h * 0.012));
-  if (!bands.length) throw new Error('no content bands found');
+  let bands = runs(rowFg, w * 0.015, Math.round(h * 0.012));
+  if (!bands.length) throw new Error('no content bands');
   bands.sort((a, b) => (b[1] - b[0]) - (a[1] - a[0]));
-  const [by0, by1] = bands[0];
-  const bandH = by1 - by0 + 1;
+  bands = bands.slice(0, nRows).sort((a, b) => a[0] - b[0]);
+  return bands;
+}
+function sliceRow(img, bgm, band, n) {
+  const { w } = img; const [by0, by1] = band; const bandH = by1 - by0 + 1;
   const colFg = new Array(w).fill(0);
   for (let y = by0; y <= by1; y++) { const base = y * w; for (let x = 0; x < w; x++) if (!bgm[base + x]) colFg[x]++; }
-  // content horizontal extent within the band
   let minX = w, maxX = 0;
   for (let x = 0; x < w; x++) if (colFg[x] > bandH * 0.02) { if (x < minX) minX = x; if (x > maxX) maxX = x; }
-  // frame count: use the known count; fall back to gap auto-detect
-  let N = expectedN;
-  if (!N) N = runs(colFg, bandH * 0.03, Math.round(w * 0.012)).filter(([a, b]) => (b - a) > w * 0.05).length || 1;
-  // split the occupied row into N even windows, then take the dominant blob in each
-  const span = (maxX - minX + 1) / N;
-  const frames = [];
-  for (let k = 0; k < N; k++) {
+  const span = (maxX - minX + 1) / n; const frames = [];
+  for (let k = 0; k < n; k++) {
     const wx0 = Math.round(minX + k * span), wx1 = Math.round(minX + (k + 1) * span) - 1;
-    const sub = [];
-    for (let x = wx0; x <= wx1; x++) sub.push(colFg[x] > bandH * 0.03 ? 1 : 0);
+    const sub = []; for (let x = wx0; x <= wx1; x++) sub.push(colFg[x] > bandH * 0.03 ? 1 : 0);
     const r = runs(sub, 0, 3);
     const best = r.length ? r.reduce((m, c) => (c[1] - c[0] > m[1] - m[0] ? c : m)) : [0, wx1 - wx0];
     const cx0 = wx0 + best[0], cx1 = wx0 + best[1];
@@ -171,52 +152,135 @@ function extractSheet(img, expectedN) {
     for (let y = by0; y <= by1; y++) { const base = y * w; for (let x = cx0; x <= cx1; x++) if (!bgm[base + x]) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; } }
     frames.push({ x0, y0, x1, y1 });
   }
-  return { bg, bgm, band: [by0, by1], frames };
+  return frames;
 }
-
-function composeStrip(img, res) {
-  const { w, px } = img; const { bgm, frames } = res;
+// compose a clip's frames into uniform full-res transparent cells, feet to baseline
+function composeCells(img, bgm, frames) {
+  const { w, px } = img;
   const fw = Math.max(...frames.map(f => f.x1 - f.x0 + 1)) + PAD * 2;
   const fh = Math.max(...frames.map(f => f.y1 - f.y0 + 1)) + PAD * 2;
-  const n = frames.length;
-  const strip = Buffer.alloc(fw * n * fh * 4);
-  const singles = [];
-  frames.forEach((f, fi) => {
+  return frames.map(f => {
     const cw = f.x1 - f.x0 + 1, chh = f.y1 - f.y0 + 1;
     const offX = Math.round((fw - cw) / 2), offY = fh - PAD - chh;
-    const single = Buffer.alloc(fw * fh * 4);
+    const cell = Buffer.alloc(fw * fh * 4);
     for (let y = 0; y < chh; y++) for (let x = 0; x < cw; x++) {
       const si = (f.y0 + y) * w + (f.x0 + x); if (bgm[si]) continue;
-      const s = si * 4;
-      const dStrip = ((offY + y) * (fw * n) + (fi * fw + offX + x)) * 4;
-      strip[dStrip] = px[s]; strip[dStrip + 1] = px[s + 1]; strip[dStrip + 2] = px[s + 2]; strip[dStrip + 3] = 255;
-      const dS = ((offY + y) * fw + (offX + x)) * 4;
-      single[dS] = px[s]; single[dS + 1] = px[s + 1]; single[dS + 2] = px[s + 2]; single[dS + 3] = 255;
+      const s = si * 4, d = ((offY + y) * fw + (offX + x)) * 4;
+      cell[d] = px[s]; cell[d + 1] = px[s + 1]; cell[d + 2] = px[s + 2]; cell[d + 3] = 255;
     }
-    singles.push(single);
+    return { w: fw, h: fh, px: cell };
   });
-  return { strip, singles, fw, fh, n };
+}
+
+// ---------- pixelize ----------
+function downsample(cell, targetH) {
+  const scale = targetH / cell.h, tw = Math.max(1, Math.round(cell.w * scale)), th = targetH;
+  const out = Buffer.alloc(tw * th * 4);
+  for (let ty = 0; ty < th; ty++) for (let tx = 0; tx < tw; tx++) {
+    const sx0 = Math.floor(tx / scale), sx1 = Math.max(sx0 + 1, Math.floor((tx + 1) / scale));
+    const sy0 = Math.floor(ty / scale), sy1 = Math.max(sy0 + 1, Math.floor((ty + 1) / scale));
+    let sr = 0, sg = 0, sb = 0, sa = 0, n = 0;
+    for (let sy = sy0; sy < sy1 && sy < cell.h; sy++) for (let sx = sx0; sx < sx1 && sx < cell.w; sx++) {
+      const i = (sy * cell.w + sx) * 4, a = cell.px[i + 3];
+      sr += cell.px[i] * a; sg += cell.px[i + 1] * a; sb += cell.px[i + 2] * a; sa += a; n++;
+    }
+    const d = (ty * tw + tx) * 4;
+    if (n === 0 || sa / n < ALPHA_CUT) { out[d] = out[d + 1] = out[d + 2] = out[d + 3] = 0; }
+    else { out[d] = Math.round(sr / sa); out[d + 1] = Math.round(sg / sa); out[d + 2] = Math.round(sb / sa); out[d + 3] = 255; }
+  }
+  return { w: tw, h: th, px: out };
+}
+// median-cut palette from sampled opaque pixels
+function buildPalette(samples, k) {
+  let boxes = [samples];
+  const channelRange = box => {
+    const mn = [255, 255, 255], mx = [0, 0, 0];
+    for (const p of box) for (let c = 0; c < 3; c++) { if (p[c] < mn[c]) mn[c] = p[c]; if (p[c] > mx[c]) mx[c] = p[c]; }
+    return [mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]];
+  };
+  while (boxes.length < k) {
+    let bi = -1, bspan = -1, bch = 0;
+    boxes.forEach((box, i) => { if (box.length < 2) return; const r = channelRange(box); const ch = r[0] >= r[1] && r[0] >= r[2] ? 0 : r[1] >= r[2] ? 1 : 2; if (r[ch] > bspan) { bspan = r[ch]; bi = i; bch = ch; } });
+    if (bi < 0) break;
+    const box = boxes[bi]; box.sort((a, b) => a[bch] - b[bch]);
+    const mid = box.length >> 1; boxes.splice(bi, 1, box.slice(0, mid), box.slice(mid));
+  }
+  return boxes.filter(b => b.length).map(box => {
+    let r = 0, g = 0, b = 0; for (const p of box) { r += p[0]; g += p[1]; b += p[2]; }
+    return [Math.round(r / box.length), Math.round(g / box.length), Math.round(b / box.length)];
+  });
+}
+function snap(palette, r, g, b) {
+  let bi = 0, bd = Infinity;
+  for (let i = 0; i < palette.length; i++) { const p = palette[i]; const dr = p[0] - r, dg = p[1] - g, db = p[2] - b; const d = dr * dr + dg * dg + db * db; if (d < bd) { bd = d; bi = i; } }
+  return palette[bi];
+}
+function applyPalette(small, palette) {
+  for (let i = 0; i < small.w * small.h; i++) { const d = i * 4; if (small.px[d + 3] === 0) continue; const c = snap(palette, small.px[d], small.px[d + 1], small.px[d + 2]); small.px[d] = c[0]; small.px[d + 1] = c[1]; small.px[d + 2] = c[2]; }
+  return small;
+}
+
+
+// ---------- pass 1 + 2 driver ----------
+function composeForClip(img, bgm, rowFrames, clip) {
+  const rf = rowFrames[clip.row];
+  if (!rf) throw new Error(`missing row ${clip.row} for ${clip.name}`);
+  return composeCells(img, bgm, rf.slice(clip.from, clip.to + 1));
 }
 
 function main() {
   fs.mkdirSync(OUT_DIR, { recursive: true });
+  const files = fs.readdirSync(SRC_DIR).filter(f => f.toLowerCase().endsWith('.png'));
+  const order = Object.keys(SHEETS).filter(b => files.includes(b + '.png'));
+  const missing = [];
+  for (const b of Object.keys(SHEETS)) if (!files.includes(b + '.png')) missing.push(b);
+  if (missing.length) console.warn('! no png for: ' + missing.join(', '));
+
+  const clipCells = {};
+  const samples = [];
+  for (const base of order) {
+    const cfg = SHEETS[base];
+    const img = decodePng(fs.readFileSync(path.join(SRC_DIR, base + '.png')));
+    const bgm = backgroundMask(img, medianBorder(img), TOL);
+    const bands = findRowBands(img, bgm, cfg.rows.length);
+    if (bands.length < cfg.rows.length) console.warn(`! ${base}: wanted ${cfg.rows.length} rows, found ${bands.length}`);
+    const rowFrames = bands.map((band, ri) => sliceRow(img, bgm, band, cfg.rows[ri]));
+    for (const clip of cfg.clips) {
+      const cells = composeForClip(img, bgm, rowFrames, clip);
+      clipCells[clip.name] = { cells, clip, base };
+      for (const cell of cells) for (let i = 0; i < cell.w * cell.h; i += 7) { const d = i * 4; if (cell.px[d + 3]) samples.push([cell.px[d], cell.px[d + 1], cell.px[d + 2]]); }
+    }
+  }
+  let s = samples;
+  if (s.length > 60000) { const step = Math.ceil(s.length / 60000); s = s.filter((_, i) => i % step === 0); }
+  const palette = buildPalette(s, PALETTE_SIZE);
+
   const manifest = {};
   const report = [];
-  for (const file of fs.readdirSync(SRC_DIR).filter(f => f.toLowerCase().endsWith('.png'))) {
-    const base = path.basename(file, path.extname(file));
-    const meta = META[base] || { name: base, fps: 4, loop: 'loop' };
-    const img = decodePng(fs.readFileSync(path.join(SRC_DIR, file)));
-    const res = extractSheet(img, meta.frames);
-    const { strip, singles, fw, fh, n } = composeStrip(img, res);
-    const animDir = path.join(OUT_DIR, meta.name);
-    fs.mkdirSync(animDir, { recursive: true });
-    fs.writeFileSync(path.join(OUT_DIR, meta.name + '.png'), encodePng(fw * n, fh, strip));
-    singles.forEach((s, i) => fs.writeFileSync(path.join(animDir, `frame_${i}.png`), encodePng(fw, fh, s)));
-    manifest[meta.name] = { frames: n, frameWidth: fw, frameHeight: fh, fps: meta.fps, loop: meta.loop, strip: `frames/${meta.name}.png` };
-    report.push(`${file.padEnd(18)} -> ${meta.name.padEnd(12)} ${n} frames, cell ${fw}x${fh}, band ${res.band.join('-')}, bg rgb(${res.bg.join(',')})`);
+  for (const name of Object.keys(clipCells)) {
+    const { cells, clip } = clipCells[name];
+    const smalls = cells.map(c => applyPalette(downsample(c, PIXEL_H), palette));
+    const fw = Math.max(...smalls.map(c => c.w)), fh = PIXEL_H, n = smalls.length;
+    const strip = Buffer.alloc(fw * n * fh * 4);
+    const dir = path.join(OUT_DIR, name); fs.mkdirSync(dir, { recursive: true });
+    smalls.forEach((c, fi) => {
+      const ox = Math.round((fw - c.w) / 2);
+      const single = Buffer.alloc(fw * fh * 4);
+      for (let y = 0; y < fh; y++) for (let x = 0; x < c.w; x++) {
+        const si = (y * c.w + x) * 4; if (!c.px[si + 3]) continue;
+        const ds = (y * (fw * n) + (fi * fw + ox + x)) * 4;
+        strip[ds] = c.px[si]; strip[ds + 1] = c.px[si + 1]; strip[ds + 2] = c.px[si + 2]; strip[ds + 3] = 255;
+        const dd = (y * fw + (ox + x)) * 4;
+        single[dd] = c.px[si]; single[dd + 1] = c.px[si + 1]; single[dd + 2] = c.px[si + 2]; single[dd + 3] = 255;
+      }
+      fs.writeFileSync(path.join(dir, `frame_${fi}.png`), encodePng(fw, fh, single));
+    });
+    fs.writeFileSync(path.join(OUT_DIR, name + '.png'), encodePng(fw * n, fh, strip));
+    manifest[name] = { frames: n, frameWidth: fw, frameHeight: fh, fps: clip.fps, loop: clip.loop, strip: `frames/${name}.png` };
+    report.push(`${name.padEnd(20)} ${n}f  ${fw}x${fh}  ${clip.loop}/${clip.fps}fps`);
   }
   fs.writeFileSync(path.join(SRC_DIR, 'animations.json'), JSON.stringify(manifest, null, 2));
-  console.log('Extracted animation frames:\n' + report.join('\n'));
+  console.log(`Shared palette: ${palette.length} colours, target height ${PIXEL_H}px\n` + report.sort().join('\n'));
   console.log('\nManifest written to src/assets/animations/animations.json');
 }
 

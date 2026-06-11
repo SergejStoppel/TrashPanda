@@ -85,8 +85,8 @@ body {
   position: absolute;
   left: 50%;
   bottom: 10px;
-  width: 84px;
-  height: 12px;
+  width: 70px;
+  height: 10px;
   transform: translateX(-50%);
   border-radius: 50%;
   background: rgba(0, 0, 0, 0.18);

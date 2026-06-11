@@ -33,6 +33,7 @@ let watchDebounceTimer;
 let cursorTimer;
 let currentScanResult;
 let dragStart;
+let dragHangAnchor = null;
 let lastNewFileNoticeAt = 0;
 let reactionTimers = [];
 let animationManifest = {};
@@ -693,11 +694,16 @@ function registerIpcHandlers() {
       return;
     }
 
+    dragHangAnchor = null;
     dragStart = {
       pointerX: Number(point.screenX),
       pointerY: Number(point.screenY),
       bounds: companionWindow.getBounds()
     };
+  });
+
+  ipcMain.on('companion:drag-hang', (_event, anchor) => {
+    dragHangAnchor = anchor ? { x: Number(anchor.x), y: Number(anchor.y) } : null;
   });
 
   ipcMain.on('companion:drag-move', (_event, point) => {
@@ -709,8 +715,16 @@ function registerIpcHandlers() {
       return;
     }
 
-    const x = dragStart.bounds.x + Number(point.screenX) - dragStart.pointerX;
-    const y = dragStart.bounds.y + Number(point.screenY) - dragStart.pointerY;
+    let x;
+    let y;
+    if (dragHangAnchor) {
+      // hang the raccoon from the cursor at his hand position
+      x = Number(point.screenX) - dragHangAnchor.x;
+      y = Number(point.screenY) - dragHangAnchor.y;
+    } else {
+      x = dragStart.bounds.x + Number(point.screenX) - dragStart.pointerX;
+      y = dragStart.bounds.y + Number(point.screenY) - dragStart.pointerY;
+    }
     companionWindow.setPosition(Math.round(x), Math.round(y));
   });
 
@@ -722,6 +736,7 @@ function registerIpcHandlers() {
     }
 
     dragStart = null;
+    dragHangAnchor = null;
   });
 
   ipcMain.handle('panel:get-scan', async () => currentScanResult || performScan('panel'));
@@ -745,6 +760,7 @@ function registerIpcHandlers() {
     const scan = currentScanResult || (await performScan('sort'));
     const selected = new Set(fileIds);
     const files = scan.categories.flatMap((category) => category.files).filter((file) => selected.has(file.id));
+    sendCompanionUpdate({ visualState: 'sorting', bubble: 'tidying these into piles' });
     const result = await moveFiles({ files, watchedFolder: scan.watchedFolder });
 
     historyStore.add({
@@ -755,7 +771,7 @@ function registerIpcHandlers() {
     });
 
     currentScanResult = await performScan('sort');
-    triggerCelebrate(result);
+    sendCompanionUpdate({ bubble: `sorted ${result.movedCount} into tidy piles` });
 
     if (panelWindow && !panelWindow.isDestroyed()) {
       panelWindow.webContents.send('panel:sort-result', result);

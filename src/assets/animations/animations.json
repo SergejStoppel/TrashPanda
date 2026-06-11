@@ -1,58 +1,154 @@
 {
+  "idle_breathe": {
+    "frames": 4,
+    "frameWidth": 76,
+    "frameHeight": 96,
+    "fps": 2,
+    "loop": "pingpong",
+    "strip": "frames/idle_breathe.png"
+  },
   "drink_tea": {
     "frames": 5,
-    "frameWidth": 300,
-    "frameHeight": 378,
+    "frameWidth": 76,
+    "frameHeight": 96,
     "fps": 2,
     "loop": "once",
     "strip": "frames/drink_tea.png"
   },
+  "read_book": {
+    "frames": 4,
+    "frameWidth": 78,
+    "frameHeight": 96,
+    "fps": 2,
+    "loop": "loop",
+    "strip": "frames/read_book.png"
+  },
   "eat_cookie": {
     "frames": 4,
-    "frameWidth": 351,
-    "frameHeight": 432,
+    "frameWidth": 78,
+    "frameHeight": 96,
     "fps": 3,
     "loop": "loop",
     "strip": "frames/eat_cookie.png"
   },
   "groom": {
     "frames": 4,
-    "frameWidth": 350,
-    "frameHeight": 429,
+    "frameWidth": 78,
+    "frameHeight": 96,
     "fps": 3,
     "loop": "loop",
     "strip": "frames/groom.png"
   },
-  "idle_breathe": {
-    "frames": 4,
-    "frameWidth": 356,
-    "frameHeight": 448,
-    "fps": 2,
-    "loop": "pingpong",
-    "strip": "frames/idle_breathe.png"
-  },
   "look_around": {
     "frames": 4,
-    "frameWidth": 346,
-    "frameHeight": 437,
+    "frameWidth": 76,
+    "frameHeight": 96,
     "fps": 2,
     "loop": "loop",
     "strip": "frames/look_around.png"
   },
-  "read_book": {
-    "frames": 4,
-    "frameWidth": 352,
-    "frameHeight": 432,
-    "fps": 2,
-    "loop": "loop",
-    "strip": "frames/read_book.png"
-  },
   "stretch": {
     "frames": 4,
-    "frameWidth": 351,
-    "frameHeight": 424,
+    "frameWidth": 79,
+    "frameHeight": 96,
     "fps": 3,
     "loop": "once",
     "strip": "frames/stretch.png"
+  },
+  "yawn": {
+    "frames": 4,
+    "frameWidth": 79,
+    "frameHeight": 96,
+    "fps": 3,
+    "loop": "once",
+    "strip": "frames/yawn.png"
+  },
+  "greet_wave": {
+    "frames": 6,
+    "frameWidth": 75,
+    "frameHeight": 96,
+    "fps": 4,
+    "loop": "once",
+    "strip": "frames/greet_wave.png"
+  },
+  "click_react": {
+    "frames": 4,
+    "frameWidth": 71,
+    "frameHeight": 96,
+    "fps": 4,
+    "loop": "once",
+    "strip": "frames/click_react.png"
+  },
+  "present_discovery": {
+    "frames": 5,
+    "frameWidth": 79,
+    "frameHeight": 96,
+    "fps": 4,
+    "loop": "once",
+    "strip": "frames/present_discovery.png"
+  },
+  "pet": {
+    "frames": 4,
+    "frameWidth": 84,
+    "frameHeight": 96,
+    "fps": 4,
+    "loop": "loop",
+    "strip": "frames/pet.png"
+  },
+  "idle_to_sort": {
+    "frames": 6,
+    "frameWidth": 75,
+    "frameHeight": 96,
+    "fps": 4,
+    "loop": "once",
+    "strip": "frames/idle_to_sort.png"
+  },
+  "sort_organize": {
+    "frames": 6,
+    "frameWidth": 80,
+    "frameHeight": 96,
+    "fps": 3,
+    "loop": "loop",
+    "strip": "frames/sort_organize.png"
+  },
+  "sort_to_idle": {
+    "frames": 6,
+    "frameWidth": 77,
+    "frameHeight": 96,
+    "fps": 4,
+    "loop": "once",
+    "strip": "frames/sort_to_idle.png"
+  },
+  "drag_hold_loop": {
+    "frames": 4,
+    "frameWidth": 36,
+    "frameHeight": 96,
+    "fps": 4,
+    "loop": "loop",
+    "strip": "frames/drag_hold_loop.png"
+  },
+  "drag_release": {
+    "frames": 4,
+    "frameWidth": 40,
+    "frameHeight": 96,
+    "fps": 4,
+    "loop": "once",
+    "strip": "frames/drag_release.png"
+  },
+  "idle_to_sleep": {
+    "frames": 8,
+    "frameWidth": 78,
+    "frameHeight": 96,
+    "fps": 3,
+    "loop": "once",
+    "strip": "frames/idle_to_sleep.png"
+  },
+  "sleep_to_idle": {
+    "frames": 8,
+    "frameWidth": 76,
+    "frameHeight": 96,
+    "fps": 3,
+    "loop": "once",
+    "strip": "frames/sleep_to_idle.png"
   }
 }

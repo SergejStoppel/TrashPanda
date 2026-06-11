@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('raccoon', {
   startDrag: (point) => ipcRenderer.send('companion:drag-start', point),
   dragMove: (point) => ipcRenderer.send('companion:drag-move', point),
   endDrag: () => ipcRenderer.send('companion:drag-end'),
+  dragHang: (anchor) => ipcRenderer.send('companion:drag-hang', anchor),
   getScan: () => ipcRenderer.invoke('panel:get-scan'),
   scanNow: () => ipcRenderer.invoke('panel:scan-now'),
   analyzeFolder: () => ipcRenderer.invoke('panel:analyze-folder'),
