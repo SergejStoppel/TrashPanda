@@ -334,7 +334,7 @@ function showPhoto(payload) {
     photoWarpImg.src = payload.src;
     photoActive = true;
     behavior = 'photo';
-    play('photo_frame', { onFrame: warpPhoto, holdFrame: 6, holdMs: 5000, onEnd: () => { photoActive = false; photoWarp.style.display = 'none'; enterIdle(); } });
+    play('photo_frame', { onFrame: warpPhoto, holdFrame: 5, holdMs: 5000, onEnd: () => { photoActive = false; photoWarp.style.display = 'none'; enterIdle(); } });
     return;
   }
   // fallback overlay if the photo_frame clip is missing

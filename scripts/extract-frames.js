@@ -25,7 +25,10 @@ const SHEETS = {
   greet_wave: { rows: [6], clips: [{ name: 'greet_wave', row: 0, from: 0, to: 5, fps: 4, loop: 'once' }] },
   click_react: { rows: [4], clips: [{ name: 'click_react', row: 0, from: 0, to: 3, fps: 4, loop: 'once' }] },
   present_discovery: { rows: [5], clips: [{ name: 'present_discovery', row: 0, from: 0, to: 4, fps: 4, loop: 'once' }] },
-  photo_frame: { rows: [10], evenGrid: true, clips: [{ name: 'photo_frame', row: 0, from: 0, to: 9, fps: 6, loop: 'once' }] },
+  // This sheet has 9 distinct poses (its labels skip 9). The two opening frames are paired
+  // with a soft gap; the rest are gap-separated but unevenly spaced, so frame x-bounds are
+  // given explicitly (measured from the source column profile) rather than auto-segmented.
+  photo_frame: { rows: [9], frameBounds: [[0, 189], [190, 374], [375, 547], [548, 710], [711, 869], [870, 1021], [1022, 1179], [1180, 1360], [1361, 1535]], clips: [{ name: 'photo_frame', row: 0, from: 0, to: 8, fps: 6, loop: 'once' }] },
   pet: { rows: [4], clips: [{ name: 'pet', row: 0, from: 0, to: 3, fps: 4, loop: 'loop' }] },
   idle_to_sort: { rows: [6], clips: [{ name: 'idle_to_sort', row: 0, from: 0, to: 5, fps: 4, loop: 'once' }] },
   sort_organize: { rows: [6], clips: [{ name: 'sort_organize', row: 0, from: 0, to: 5, fps: 3, loop: 'loop' }] },
@@ -343,7 +346,7 @@ function main() {
     const bgm = backgroundMask(img, bg, TOL);
     const bands = findRowBands(img, bgm, cfg.rows.length);
     if (bands.length < cfg.rows.length) console.warn(`! ${base}: wanted ${cfg.rows.length} rows, found ${bands.length}`);
-    const rowFrames = bands.map((band, ri) => cfg.evenGrid ? sliceRowGrid(img, bgm, band, cfg.rows[ri]) : sliceRow(img, bgm, band, cfg.rows[ri], cfg.unevenFrames));
+    const rowFrames = bands.map((band, ri) => cfg.frameBounds ? cfg.frameBounds.map(([lo, hi]) => tightBbox(img, bgm, band, lo, hi)) : cfg.evenGrid ? sliceRowGrid(img, bgm, band, cfg.rows[ri]) : sliceRow(img, bgm, band, cfg.rows[ri], cfg.unevenFrames));
     for (const clip of cfg.clips) {
       const cells = composeForClip(img, bgm, rowFrames, clip);
       const quads = clip.name === 'photo_frame' ? cells.map((cell) => keyPhotoArea(cell, bg)) : null;
