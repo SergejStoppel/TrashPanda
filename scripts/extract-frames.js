@@ -25,7 +25,7 @@ const SHEETS = {
   greet_wave: { rows: [6], clips: [{ name: 'greet_wave', row: 0, from: 0, to: 5, fps: 4, loop: 'once' }] },
   click_react: { rows: [4], clips: [{ name: 'click_react', row: 0, from: 0, to: 3, fps: 4, loop: 'once' }] },
   present_discovery: { rows: [5], clips: [{ name: 'present_discovery', row: 0, from: 0, to: 4, fps: 4, loop: 'once' }] },
-  photo_frame: { rows: [10], clips: [{ name: 'photo_frame', row: 0, from: 0, to: 9, fps: 6, loop: 'once' }] },
+  photo_frame: { rows: [10], evenGrid: true, clips: [{ name: 'photo_frame', row: 0, from: 0, to: 9, fps: 6, loop: 'once' }] },
   pet: { rows: [4], clips: [{ name: 'pet', row: 0, from: 0, to: 3, fps: 4, loop: 'loop' }] },
   idle_to_sort: { rows: [6], clips: [{ name: 'idle_to_sort', row: 0, from: 0, to: 5, fps: 4, loop: 'once' }] },
   sort_organize: { rows: [6], clips: [{ name: 'sort_organize', row: 0, from: 0, to: 5, fps: 3, loop: 'loop' }] },
@@ -159,6 +159,26 @@ function bboxInWindow(img, bgm, band, wx0, wx1) {
   for (let y = by0; y <= by1; y++) { const base = y * w; for (let x = cx0; x <= cx1; x++) if (!bgm[base + x]) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; } }
   if (x1 < x0) { x0 = wx0; x1 = wx1; y0 = by0; y1 = by1; }
   return { x0, y0, x1, y1 };
+}
+
+// bbox of ALL foreground within an x-range (keeps content that has internal gaps, e.g. a
+// body separated from a held prop). Used for sheets on a clean grid: one frame per cell.
+function tightBbox(img, bgm, band, lo, hi) {
+  const { w } = img; const [by0, by1] = band;
+  let x0 = hi, x1 = lo, y0 = by1, y1 = by0, found = false;
+  for (let y = by0; y <= by1; y++) { const base = y * w; for (let x = lo; x <= hi; x++) if (!bgm[base + x]) { found = true; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; } }
+  if (!found) { x0 = lo; x1 = hi; y0 = by0; y1 = by1; }
+  return { x0, y0, x1, y1 };
+}
+
+function sliceRowGrid(img, bgm, band, n) {
+  const { w } = img;
+  const frames = [];
+  for (let k = 0; k < n; k++) {
+    const lo = Math.round(k * w / n), hi = Math.round((k + 1) * w / n) - 1;
+    frames.push(tightBbox(img, bgm, band, lo, hi));
+  }
+  return frames;
 }
 
 function sliceRow(img, bgm, band, n, uneven) {
@@ -323,7 +343,7 @@ function main() {
     const bgm = backgroundMask(img, bg, TOL);
     const bands = findRowBands(img, bgm, cfg.rows.length);
     if (bands.length < cfg.rows.length) console.warn(`! ${base}: wanted ${cfg.rows.length} rows, found ${bands.length}`);
-    const rowFrames = bands.map((band, ri) => sliceRow(img, bgm, band, cfg.rows[ri], cfg.unevenFrames));
+    const rowFrames = bands.map((band, ri) => cfg.evenGrid ? sliceRowGrid(img, bgm, band, cfg.rows[ri]) : sliceRow(img, bgm, band, cfg.rows[ri], cfg.unevenFrames));
     for (const clip of cfg.clips) {
       const cells = composeForClip(img, bgm, rowFrames, clip);
       const quads = clip.name === 'photo_frame' ? cells.map((cell) => keyPhotoArea(cell, bg)) : null;
