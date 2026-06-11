@@ -4,87 +4,82 @@ const zlib = require('zlib');
 
 const ASSET_DIR = path.join(__dirname, '..', 'src', 'assets');
 const FRAME = 48;
-const STATES = ['idle', 'notice', 'carry', 'sweep', 'buried', 'celebrate', 'sleep', 'think', 'bin'];
-const FRAMES_PER_STATE = 4;
-const SHEET_WIDTH = FRAME * FRAMES_PER_STATE;
+
+// Per-state frame counts. States can have different numbers of frames.
+const STATE_FRAMES = {
+  idle: 6, notice: 4, carry: 4, sweep: 4, buried: 4,
+  celebrate: 6, sleep: 4, think: 4, bin: 4,
+  walk: 6, peek: 4, pet: 4, yawn: 4, wave: 4
+};
+const STATES = Object.keys(STATE_FRAMES);
+const MAX_FRAMES = Math.max(...Object.values(STATE_FRAMES));
+const SHEET_WIDTH = FRAME * MAX_FRAMES;
 const SHEET_HEIGHT = FRAME * STATES.length;
 
-const COLORS = {
+// Warm palette taken from the reference raccoon.
+const C = {
   clear: [0, 0, 0, 0],
-  outline: [18, 19, 22, 255],
-  fur: [39, 42, 48, 255],
-  fur2: [54, 59, 67, 255],
-  mask: [9, 10, 12, 255],
-  eye: [255, 253, 238, 255],
+  ol: [58, 42, 48, 255],        // soft dark-brown outline
+  furD: [92, 82, 108, 255],     // lavender-grey shadow
+  fur: [124, 114, 142, 255],    // lavender-grey base
+  furL: [156, 148, 172, 255],   // lavender-grey rim highlight
+  mask: [46, 40, 54, 255],      // dark eye mask
+  cream: [245, 233, 206, 255],  // chest, belly, muzzle
+  creamD: [222, 205, 170, 255], // cream shadow
+  peach: [228, 172, 150, 255],  // inner ear
+  tan: [198, 152, 98, 255],     // tail light ring
+  tanD: [150, 112, 70, 255],    // tail shade
+  ringD: [74, 56, 48, 255],     // tail dark ring
+  eye: [28, 24, 30, 255],       // pupil
+  white: [252, 250, 244, 255],
+  nose: [40, 32, 38, 255],
+  tongue: [214, 82, 88, 255],
+  sparkle: [248, 206, 96, 255],
   paper: [255, 248, 218, 255],
-  paperEdge: [226, 198, 113, 255],
-  broom: [142, 91, 43, 255],
-  bristle: [231, 177, 74, 255],
-  sparkle: [246, 205, 78, 255],
-  soft: [126, 137, 149, 255]
+  soft: [130, 140, 152, 255]
 };
 
+// ---------- PNG encode ----------
 const crcTable = (() => {
-  const table = new Uint32Array(256);
-
-  for (let index = 0; index < 256; index += 1) {
-    let value = index;
-
-    for (let bit = 0; bit < 8; bit += 1) {
-      value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
-    }
-
-    table[index] = value >>> 0;
+  const t = new Uint32Array(256);
+  for (let i = 0; i < 256; i += 1) {
+    let v = i;
+    for (let b = 0; b < 8; b += 1) v = v & 1 ? 0xedb88320 ^ (v >>> 1) : v >>> 1;
+    t[i] = v >>> 0;
   }
-
-  return table;
+  return t;
 })();
 
-function crc32(buffer) {
-  let crc = 0xffffffff;
-
-  for (const byte of buffer) {
-    crc = crcTable[(crc ^ byte) & 0xff] ^ (crc >>> 8);
-  }
-
-  return (crc ^ 0xffffffff) >>> 0;
+function crc32(buf) {
+  let c = 0xffffffff;
+  for (const b of buf) c = crcTable[(c ^ b) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
 }
 
 function chunk(type, data) {
-  const typeBuffer = Buffer.from(type);
-  const length = Buffer.alloc(4);
+  const t = Buffer.from(type);
+  const len = Buffer.alloc(4);
   const crc = Buffer.alloc(4);
-  length.writeUInt32BE(data.length, 0);
-  crc.writeUInt32BE(crc32(Buffer.concat([typeBuffer, data])), 0);
-  return Buffer.concat([length, typeBuffer, data, crc]);
+  len.writeUInt32BE(data.length, 0);
+  crc.writeUInt32BE(crc32(Buffer.concat([t, data])), 0);
+  return Buffer.concat([len, t, data, crc]);
 }
 
-function pngFromPixels(width, height, pixels) {
-  const raw = Buffer.alloc((width * 4 + 1) * height);
-
-  for (let y = 0; y < height; y += 1) {
-    const rowStart = y * (width * 4 + 1);
-    raw[rowStart] = 0;
-
-    for (let x = 0; x < width; x += 1) {
-      const source = (y * width + x) * 4;
-      const target = rowStart + 1 + x * 4;
-      raw[target] = pixels[source];
-      raw[target + 1] = pixels[source + 1];
-      raw[target + 2] = pixels[source + 2];
-      raw[target + 3] = pixels[source + 3];
+function pngFromPixels(w, h, px) {
+  const raw = Buffer.alloc((w * 4 + 1) * h);
+  for (let y = 0; y < h; y += 1) {
+    const rs = y * (w * 4 + 1);
+    raw[rs] = 0;
+    for (let x = 0; x < w; x += 1) {
+      const s = (y * w + x) * 4;
+      const t = rs + 1 + x * 4;
+      raw[t] = px[s]; raw[t + 1] = px[s + 1]; raw[t + 2] = px[s + 2]; raw[t + 3] = px[s + 3];
     }
   }
-
   const ihdr = Buffer.alloc(13);
-  ihdr.writeUInt32BE(width, 0);
-  ihdr.writeUInt32BE(height, 4);
-  ihdr[8] = 8;
-  ihdr[9] = 6;
-  ihdr[10] = 0;
-  ihdr[11] = 0;
-  ihdr[12] = 0;
-
+  ihdr.writeUInt32BE(w, 0);
+  ihdr.writeUInt32BE(h, 4);
+  ihdr[8] = 8; ihdr[9] = 6;
   return Buffer.concat([
     Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
     chunk('IHDR', ihdr),
@@ -93,218 +88,262 @@ function pngFromPixels(width, height, pixels) {
   ]);
 }
 
-function createCanvas(width, height) {
-  return {
-    width,
-    height,
-    pixels: Buffer.alloc(width * height * 4)
-  };
+function createCanvas(w, h) {
+  return { width: w, height: h, pixels: Buffer.alloc(w * h * 4) };
 }
 
-function setPixel(canvas, x, y, color) {
-  if (x < 0 || y < 0 || x >= canvas.width || y >= canvas.height) {
-    return;
-  }
-
-  const offset = (y * canvas.width + x) * 4;
-  canvas.pixels[offset] = color[0];
-  canvas.pixels[offset + 1] = color[1];
-  canvas.pixels[offset + 2] = color[2];
-  canvas.pixels[offset + 3] = color[3];
+function setPixel(cv, x, y, c) {
+  x = Math.round(x); y = Math.round(y);
+  if (x < 0 || y < 0 || x >= cv.width || y >= cv.height) return;
+  const o = (y * cv.width + x) * 4;
+  cv.pixels[o] = c[0]; cv.pixels[o + 1] = c[1]; cv.pixels[o + 2] = c[2]; cv.pixels[o + 3] = c[3];
 }
 
-function rect(canvas, x, y, width, height, color) {
-  for (let yy = y; yy < y + height; yy += 1) {
-    for (let xx = x; xx < x + width; xx += 1) {
-      setPixel(canvas, xx, yy, color);
+function rect(cv, x, y, w, h, c) {
+  for (let yy = 0; yy < h; yy += 1) for (let xx = 0; xx < w; xx += 1) setPixel(cv, x + xx, y + yy, c);
+}
+
+function clr(cv, x, y, w, h) { rect(cv, x, y, w, h, C.clear); }
+
+function ellipse(cv, cx, cy, rx, ry, c) {
+  for (let y = -ry; y <= ry; y += 1) {
+    for (let x = -rx; x <= rx; x += 1) {
+      if ((x * x) / (rx * rx) + (y * y) / (ry * ry) <= 1) setPixel(cv, cx + x, cy + y, c);
     }
   }
 }
 
-function clearRect(canvas, x, y, width, height) {
-  rect(canvas, x, y, width, height, COLORS.clear);
-}
-
-function drawPattern(canvas, originX, originY, rows, palette) {
-  rows.forEach((row, y) => {
-    [...row].forEach((key, x) => {
-      if (key !== '.' && palette[key]) {
-        setPixel(canvas, originX + x, originY + y, palette[key]);
-      }
-    });
-  });
-}
-
-function drawPaper(canvas, x, y, tilt = 0) {
-  rect(canvas, x, y, 9, 12, COLORS.outline);
-  rect(canvas, x + 1, y + 1, 7, 10, COLORS.paper);
-  rect(canvas, x + 1, y + 8, 7, 2, COLORS.paperEdge);
-
-  if (tilt > 0) {
-    setPixel(canvas, x + 8, y, COLORS.clear);
-    setPixel(canvas, x + 8, y + 1, COLORS.clear);
+function ellipseOutline(cv, cx, cy, rx, ry, c) {
+  for (let y = -ry - 1; y <= ry + 1; y += 1) {
+    for (let x = -rx - 1; x <= rx + 1; x += 1) {
+      const inside = (x * x) / (rx * rx) + (y * y) / (ry * ry) <= 1;
+      if (!inside) continue;
+      const edge = ((x + 1) * (x + 1)) / (rx * rx) + (y * y) / (ry * ry) > 1 ||
+        ((x - 1) * (x - 1)) / (rx * rx) + (y * y) / (ry * ry) > 1 ||
+        (x * x) / (rx * rx) + ((y + 1) * (y + 1)) / (ry * ry) > 1 ||
+        (x * x) / (rx * rx) + ((y - 1) * (y - 1)) / (ry * ry) > 1;
+      if (edge) setPixel(cv, cx + x, cy + y, c);
+    }
   }
 }
 
-function drawBroom(canvas, x, y, frame) {
-  const sweep = frame % 2 === 0 ? 0 : 2;
-  rect(canvas, x + sweep, y, 18, 2, COLORS.broom);
-  rect(canvas, x + 16 + sweep, y - 3, 7, 8, COLORS.outline);
-  rect(canvas, x + 17 + sweep, y - 2, 5, 6, COLORS.bristle);
-  rect(canvas, x + 18 + sweep, y + 2, 4, 1, COLORS.outline);
-}
+// ---------- Raccoon ----------
+// Front-facing sitting raccoon centered in a 48px cell at (ox, oy).
+function drawRaccoon(cv, ox, oy, opts) {
+  const o = Object.assign({
+    bounce: 0, earPerk: 0, eye: 'open', mouth: 'neutral',
+    arms: 'rest', tailWag: 0, blush: false, sparkles: false
+  }, opts);
+  const cx = ox + 24;
+  const by = oy + 6 + o.bounce;
 
-function drawTrashBin(canvas, x, y, frame) {
-  const lidLift = frame % 2 === 0 ? 0 : -1;
-  rect(canvas, x + 1, y + lidLift, 26, 4, COLORS.outline);
-  rect(canvas, x + 3, y + lidLift + 1, 22, 2, COLORS.soft);
-  rect(canvas, x + 4, y + 5, 20, 19, COLORS.outline);
-  rect(canvas, x + 6, y + 6, 16, 17, COLORS.soft);
-  rect(canvas, x + 9, y + 8, 2, 13, COLORS.outline);
-  rect(canvas, x + 16, y + 8, 2, 13, COLORS.outline);
-  clearRect(canvas, x + 4, y + 5, 2, 2);
-  clearRect(canvas, x + 22, y + 5, 2, 2);
-}
+  // Tail (behind body) with rings
+  const tx = ox + 9 + o.tailWag;
+  const ty = by + 26;
+  ellipseOutline(cv, tx, ty + 6, 6, 9, C.ol);
+  ellipse(cv, tx, ty + 6, 5, 8, C.tan);
+  rect(cv, tx - 5, ty + 1, 11, 3, C.ringD);
+  rect(cv, tx - 5, ty + 8, 11, 3, C.ringD);
+  rect(cv, tx - 4, ty + 12, 9, 3, C.tanD);
 
-function drawZ(canvas, x, y, size = 1) {
-  rect(canvas, x, y, 5 * size, size, COLORS.soft);
-  rect(canvas, x + 3 * size, y + size, size, size, COLORS.soft);
-  rect(canvas, x + 2 * size, y + 2 * size, size, size, COLORS.soft);
-  rect(canvas, x, y + 3 * size, 5 * size, size, COLORS.soft);
-}
-
-function drawSparkle(canvas, x, y) {
-  rect(canvas, x + 1, y, 1, 5, COLORS.sparkle);
-  rect(canvas, x, y + 2, 3, 1, COLORS.sparkle);
-}
-
-function drawRaccoon(canvas, offsetX, offsetY, state, frame) {
-  const bounce = {
-    idle: [0, 1, 0, 0],
-    notice: [2, -2, 0, -1],
-    carry: [0, 1, 0, 1],
-    sweep: [0, 1, 0, 1],
-    buried: [3, 3, 2, 3],
-    celebrate: [0, -4, 0, -3],
-    sleep: [3, 3, 4, 3],
-    think: [0, 1, 0, 1],
-    bin: [1, 2, 1, 2]
-  }[state][frame];
-  const baseX = offsetX + 4 + (state === 'carry' && frame % 2 === 1 ? 1 : 0);
-  const baseY = offsetY + 5 + bounce;
-  const blink = (state === 'idle' && frame === 2) || state === 'sleep';
-  const perk = state === 'notice' || state === 'think';
-  const tailWag = frame % 2 === 0 ? 0 : 1;
-
-  if (state === 'buried') {
-    drawPaper(canvas, offsetX + 5, offsetY + 33, 1);
-    drawPaper(canvas, offsetX + 16, offsetY + 36, 0);
-    drawPaper(canvas, offsetX + 29, offsetY + 34, 1);
+  // Body with cream belly
+  ellipseOutline(cv, cx, by + 30, 14, 14, C.ol);
+  ellipse(cv, cx, by + 30, 13, 13, C.fur);
+  ellipse(cv, cx, by + 33, 9, 11, C.cream);
+  ellipse(cv, cx, by + 30, 9, 9, C.cream);
+  for (let y = -13; y <= 13; y += 1) for (let x = -13; x <= -6; x += 1) {
+    if ((x * x) / 169 + (y * y) / 169 <= 1) setPixel(cv, cx + x, by + 30 + y, C.furD);
   }
+  rect(cv, cx - 6, by + 22, 12, 2, C.creamD);
 
-  rect(canvas, baseX + 30 + tailWag, baseY + 22, 9, 17, COLORS.outline);
-  rect(canvas, baseX + 31 + tailWag, baseY + 23, 7, 15, COLORS.soft);
-  rect(canvas, baseX + 31 + tailWag, baseY + 26, 7, 3, COLORS.outline);
-  rect(canvas, baseX + 31 + tailWag, baseY + 33, 7, 3, COLORS.outline);
+  // Feet
+  ellipse(cv, cx - 8, by + 42, 4, 3, C.cream);
+  ellipse(cv, cx + 8, by + 42, 4, 3, C.cream);
+  ellipseOutline(cv, cx - 8, by + 42, 4, 3, C.ol);
+  ellipseOutline(cv, cx + 8, by + 42, 4, 3, C.ol);
 
-  rect(canvas, baseX + 11, baseY + 22, 22, 18, COLORS.outline);
-  clearRect(canvas, baseX + 11, baseY + 22, 4, 3);
-  clearRect(canvas, baseX + 29, baseY + 22, 4, 3);
-  clearRect(canvas, baseX + 11, baseY + 37, 3, 3);
-  clearRect(canvas, baseX + 30, baseY + 37, 3, 3);
-  rect(canvas, baseX + 13, baseY + 23, 18, 16, COLORS.fur);
-  clearRect(canvas, baseX + 13, baseY + 23, 2, 2);
-  clearRect(canvas, baseX + 29, baseY + 23, 2, 2);
-  rect(canvas, baseX + 18, baseY + 28, 8, 8, COLORS.fur2);
-  rect(canvas, baseX + 13, baseY + 38, 6, 3, COLORS.mask);
-  rect(canvas, baseX + 25, baseY + 38, 6, 3, COLORS.mask);
-
-  rect(canvas, baseX + 9, baseY + (perk ? 2 : 5), 8, 9, COLORS.outline);
-  rect(canvas, baseX + 28, baseY + (perk ? 2 : 5), 8, 9, COLORS.outline);
-  clearRect(canvas, baseX + 9, baseY + (perk ? 2 : 5), 2, 2);
-  clearRect(canvas, baseX + 34, baseY + (perk ? 2 : 5), 2, 2);
-  rect(canvas, baseX + 11, baseY + (perk ? 4 : 7), 4, 4, COLORS.fur);
-  rect(canvas, baseX + 30, baseY + (perk ? 4 : 7), 4, 4, COLORS.fur);
-
-  rect(canvas, baseX + 8, baseY + 9, 28, 20, COLORS.outline);
-  clearRect(canvas, baseX + 8, baseY + 9, 5, 3);
-  clearRect(canvas, baseX + 31, baseY + 9, 5, 3);
-  clearRect(canvas, baseX + 8, baseY + 26, 4, 3);
-  clearRect(canvas, baseX + 32, baseY + 26, 4, 3);
-  rect(canvas, baseX + 10, baseY + 11, 24, 16, COLORS.fur);
-  clearRect(canvas, baseX + 10, baseY + 11, 3, 2);
-  clearRect(canvas, baseX + 31, baseY + 11, 3, 2);
-  rect(canvas, baseX + 11, baseY + 16, 22, 7, COLORS.mask);
-
-  if (blink) {
-    rect(canvas, baseX + 15, baseY + 19, 5, 1, COLORS.eye);
-    rect(canvas, baseX + 25, baseY + 19, 5, 1, COLORS.eye);
+  // Arms
+  if (o.arms === 'up' || o.arms === 'wave') {
+    const lift = o.arms === 'wave' ? 6 : 0;
+    ellipse(cv, cx - 12, by + 17 - lift, 3, 4, C.fur);
+    ellipseOutline(cv, cx - 12, by + 17 - lift, 3, 4, C.ol);
+    rect(cv, cx - 13, by + 19 - lift, 3, 1, C.furD);
+    ellipse(cv, cx + 12, by + 17, 3, 4, C.fur);
+    ellipseOutline(cv, cx + 12, by + 17, 3, 4, C.ol);
+    rect(cv, cx + 11, by + 19, 3, 1, C.furD);
+  } else if (o.arms === 'carry') {
+    ellipse(cv, cx - 9, by + 28, 3, 4, C.fur);
+    ellipse(cv, cx + 9, by + 28, 3, 4, C.fur);
+    rect(cv, cx - 4, by + 24, 8, 9, C.ol);
+    rect(cv, cx - 3, by + 25, 6, 7, C.paper);
   } else {
-    rect(canvas, baseX + 15, baseY + 17, 5, 6, COLORS.eye);
-    rect(canvas, baseX + 25, baseY + 17, 5, 6, COLORS.eye);
+    ellipse(cv, cx - 11, by + 30, 3, 5, C.fur);
+    ellipse(cv, cx + 11, by + 30, 3, 5, C.fur);
+    ellipseOutline(cv, cx - 11, by + 30, 3, 5, C.ol);
+    ellipseOutline(cv, cx + 11, by + 30, 3, 5, C.ol);
   }
 
-  rect(canvas, baseX + 21, baseY + 24, 4, 2, COLORS.mask);
+  // Ears
+  const ep = o.earPerk;
+  rect(cv, cx - 16, by + 0 - ep, 9, 9, C.ol);
+  rect(cv, cx - 15, by + 1 - ep, 7, 7, C.fur);
+  rect(cv, cx - 13, by + 3 - ep, 4, 5, C.peach);
+  rect(cv, cx + 7, by + 0 - ep, 9, 9, C.ol);
+  rect(cv, cx + 8, by + 1 - ep, 7, 7, C.fur);
+  rect(cv, cx + 9, by + 3 - ep, 4, 5, C.peach);
+  clr(cv, cx - 16, by + 0 - ep, 2, 2); clr(cv, cx - 9, by + 0 - ep, 2, 2);
+  clr(cv, cx + 7, by + 0 - ep, 2, 2); clr(cv, cx + 14, by + 0 - ep, 2, 2);
 
-  if (state === 'carry') {
-    drawPaper(canvas, baseX + 5 + frame, baseY + 24, 0);
-    rect(canvas, baseX + 11, baseY + 29, 6, 2, COLORS.outline);
+  // Head
+  ellipseOutline(cv, cx, by + 12, 15, 12, C.ol);
+  ellipse(cv, cx, by + 12, 14, 11, C.fur);
+  rect(cv, cx - 8, by + 2, 16, 2, C.furL);
+  ellipse(cv, cx, by + 9, 3, 6, C.cream);
+  ellipse(cv, cx, by + 18, 8, 6, C.cream);
+
+  // Mask
+  ellipse(cv, cx - 7, by + 12, 5, 5, C.mask);
+  ellipse(cv, cx + 7, by + 12, 5, 5, C.mask);
+  rect(cv, cx - 3, by + 8, 6, 3, C.mask);
+
+  // Eyes
+  if (o.eye === 'closed') {
+    rect(cv, cx - 9, by + 12, 5, 1, C.white);
+    setPixel(cv, cx - 10, by + 13, C.white); setPixel(cv, cx - 4, by + 13, C.white);
+    rect(cv, cx + 5, by + 12, 5, 1, C.white);
+    setPixel(cv, cx + 4, by + 13, C.white); setPixel(cv, cx + 10, by + 13, C.white);
+  } else if (o.eye === 'blink') {
+    rect(cv, cx - 9, by + 13, 4, 1, C.white);
+    rect(cv, cx + 5, by + 13, 4, 1, C.white);
+  } else {
+    ellipse(cv, cx - 7, by + 12, 2, 3, C.white);
+    ellipse(cv, cx + 7, by + 12, 2, 3, C.white);
+    setPixel(cv, cx - 7, by + 12, C.eye); setPixel(cv, cx - 7, by + 13, C.eye);
+    setPixel(cv, cx + 7, by + 12, C.eye); setPixel(cv, cx + 7, by + 13, C.eye);
   }
 
-  if (state === 'sweep') {
-    drawBroom(canvas, baseX + 15, baseY + 33, frame);
+  // Nose and mouth
+  rect(cv, cx - 1, by + 16, 3, 2, C.nose);
+  if (o.mouth === 'open') {
+    rect(cv, cx - 2, by + 19, 5, 3, C.ol);
+    rect(cv, cx - 1, by + 20, 3, 2, C.tongue);
+  } else if (o.mouth === 'smile') {
+    setPixel(cv, cx - 2, by + 19, C.ol);
+    rect(cv, cx - 1, by + 20, 3, 1, C.ol);
+    setPixel(cv, cx + 2, by + 19, C.ol);
   }
 
-  if (state === 'notice') {
-    rect(canvas, baseX + 37, baseY + 6, 2, 8, COLORS.sparkle);
-    rect(canvas, baseX + 37, baseY + 16, 2, 2, COLORS.sparkle);
+  if (o.blush) {
+    setPixel(cv, cx - 11, by + 15, C.peach); setPixel(cv, cx - 10, by + 15, C.peach);
+    setPixel(cv, cx + 10, by + 15, C.peach); setPixel(cv, cx + 11, by + 15, C.peach);
   }
-
-  if (state === 'celebrate') {
-    drawSparkle(canvas, baseX + 4, baseY + 9);
-    drawSparkle(canvas, baseX + 38, baseY + 7);
+  if (o.sparkles) {
+    rect(cv, ox + 4, by + 2, 1, 5, C.sparkle); rect(cv, ox + 2, by + 4, 5, 1, C.sparkle);
+    rect(cv, ox + 42, by + 4, 1, 5, C.sparkle); rect(cv, ox + 40, by + 6, 5, 1, C.sparkle);
   }
+}
 
+function optsFor(state, f) {
+  const wag = f % 2 === 0 ? 0 : 1;
+  switch (state) {
+    case 'idle':
+      return { bounce: [0, 0, 1, 1, 0, 0][f], eye: f === 3 ? 'blink' : 'open', mouth: 'smile', tailWag: wag };
+    case 'notice':
+      return { bounce: [0, -2, 0, -1][f], earPerk: 2, eye: 'open', mouth: 'open', tailWag: wag, sparkles: f % 2 === 1 };
+    case 'carry':
+      return { bounce: [0, 1, 0, 1][f], arms: 'carry', eye: 'open', mouth: 'smile', tailWag: wag };
+    case 'sweep':
+      return { bounce: [0, 1, 0, 1][f], arms: 'rest', eye: 'open', mouth: 'smile', tailWag: wag };
+    case 'buried':
+      return { bounce: [2, 2, 3, 2][f], eye: 'blink', mouth: 'neutral' };
+    case 'celebrate':
+      return { bounce: [0, -3, -1, -4, -1, -3][f], arms: 'up', eye: 'closed', mouth: 'open', blush: true, sparkles: true, tailWag: wag };
+    case 'sleep':
+      return { bounce: [2, 2, 3, 2][f], eye: 'closed', mouth: 'neutral' };
+    case 'think':
+      return { bounce: [0, 1, 0, 1][f], earPerk: 1, eye: 'open', mouth: 'neutral', tailWag: wag };
+    case 'bin':
+      return { bounce: [0, 1, 0, 1][f], arms: 'carry', eye: 'open', mouth: 'smile' };
+    case 'walk':
+      return { bounce: [0, 1, 2, 1, 0, 1][f], eye: 'open', mouth: 'smile', tailWag: f % 2 };
+    case 'peek':
+      return { bounce: [0, 1, 0, 1][f], earPerk: 2, eye: 'open', mouth: 'neutral', tailWag: wag };
+    case 'pet':
+      return { bounce: [0, -1, 0, -1][f], eye: 'closed', mouth: 'open', blush: true, tailWag: wag };
+    case 'yawn':
+      return { bounce: [0, 1, 1, 0][f], eye: ['open', 'blink', 'closed', 'closed'][f], mouth: 'open' };
+    case 'wave':
+      return { bounce: [0, -1, 0, -1][f], arms: 'wave', eye: 'open', mouth: 'open', tailWag: wag };
+    default:
+      return { bounce: 0 };
+  }
+}
+
+function extras(cv, ox, oy, state, f) {
   if (state === 'sleep') {
-    drawZ(canvas, baseX + 33, baseY + 6 - frame, 1);
+    const yy = oy + 4 - f;
+    rect(cv, ox + 34, yy, 4, 1, C.soft);
+    setPixel(cv, ox + 36, yy + 1, C.soft);
+    rect(cv, ox + 34, yy + 2, 4, 1, C.soft);
   }
-
   if (state === 'think') {
-    drawPattern(canvas, baseX + 35, baseY + 6, ['oo', 'oo'], { o: COLORS.paper });
-    rect(canvas, baseX + 35, baseY + 6, 2, 2, COLORS.outline);
+    rect(cv, ox + 38, oy + 6, 3, 3, C.ol);
+    rect(cv, ox + 39, oy + 7, 1, 1, C.paper);
   }
-
   if (state === 'bin') {
-    drawTrashBin(canvas, offsetX + 10, offsetY + 28, frame);
-  }
-
-  if (state === 'buried') {
-    drawPaper(canvas, offsetX + 9, offsetY + 27, 0);
-    drawPaper(canvas, offsetX + 23, offsetY + 29, 1);
+    const lid = f % 2 === 0 ? 0 : -1;
+    rect(cv, ox + 30, oy + 24 + lid, 14, 3, C.ol);
+    rect(cv, ox + 31, oy + 27, 12, 14, C.ol);
+    rect(cv, ox + 33, oy + 28, 8, 12, C.soft);
   }
 }
 
 function generateSpriteSheet() {
-  const canvas = createCanvas(SHEET_WIDTH, SHEET_HEIGHT);
-
+  const cv = createCanvas(SHEET_WIDTH, SHEET_HEIGHT);
   STATES.forEach((state, row) => {
-    for (let frame = 0; frame < FRAMES_PER_STATE; frame += 1) {
-      drawRaccoon(canvas, frame * FRAME, row * FRAME, state, frame);
+    for (let f = 0; f < STATE_FRAMES[state]; f += 1) {
+      const ox = f * FRAME;
+      const oy = row * FRAME;
+      drawRaccoon(cv, ox, oy, optsFor(state, f));
+      extras(cv, ox, oy, state, f);
     }
   });
-
-  fs.writeFileSync(path.join(ASSET_DIR, 'raccoon-sprite.png'), pngFromPixels(canvas.width, canvas.height, canvas.pixels));
+  fs.writeFileSync(path.join(ASSET_DIR, 'raccoon-sprite.png'), pngFromPixels(cv.width, cv.height, cv.pixels));
 }
 
 function generateTrayIcon() {
-  const canvas = createCanvas(32, 32);
-  drawRaccoon(canvas, -7, -7, 'idle', 0);
-  rect(canvas, 12, 15, 1, 2, COLORS.mask);
-  rect(canvas, 22, 15, 1, 2, COLORS.mask);
-  fs.writeFileSync(path.join(ASSET_DIR, 'tray-raccoon.png'), pngFromPixels(canvas.width, canvas.height, canvas.pixels));
+  // Render the idle face into 48px, then nearest-neighbor downscale to 32px.
+  const big = createCanvas(FRAME, FRAME);
+  drawRaccoon(big, 0, 0, { eye: 'open', mouth: 'smile' });
+  const out = createCanvas(32, 32);
+  for (let y = 0; y < 32; y += 1) {
+    for (let x = 0; x < 32; x += 1) {
+      const sx = Math.floor((x / 32) * FRAME);
+      const sy = Math.floor((y / 32) * FRAME);
+      const s = (sy * FRAME + sx) * 4;
+      const t = (y * 32 + x) * 4;
+      out.pixels[t] = big.pixels[s];
+      out.pixels[t + 1] = big.pixels[s + 1];
+      out.pixels[t + 2] = big.pixels[s + 2];
+      out.pixels[t + 3] = big.pixels[s + 3];
+    }
+  }
+  fs.writeFileSync(path.join(ASSET_DIR, 'tray-raccoon.png'), pngFromPixels(out.width, out.height, out.pixels));
+}
+
+// Layout metadata other modules rely on, written next to the assets so the
+// renderer CSS and JS can stay in sync with the generator.
+function writeManifest() {
+  const rows = {};
+  STATES.forEach((s, i) => { rows[s] = { row: i, frames: STATE_FRAMES[s] }; });
+  fs.writeFileSync(
+    path.join(ASSET_DIR, 'sprite-manifest.json'),
+    JSON.stringify({ frame: FRAME, scale: 3, sheetWidth: SHEET_WIDTH, sheetHeight: SHEET_HEIGHT, maxFrames: MAX_FRAMES, states: rows }, null, 2)
+  );
 }
 
 fs.mkdirSync(ASSET_DIR, { recursive: true });
 generateSpriteSheet();
 generateTrayIcon();
-console.log('Generated pixel raccoon assets.');
+writeManifest();
+console.log(`Generated pixel raccoon assets (${SHEET_WIDTH}x${SHEET_HEIGHT}, ${STATES.length} states).`);

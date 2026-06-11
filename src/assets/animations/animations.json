@@ -1,0 +1,58 @@
+{
+  "drink_tea": {
+    "frames": 5,
+    "frameWidth": 300,
+    "frameHeight": 378,
+    "fps": 2,
+    "loop": "once",
+    "strip": "frames/drink_tea.png"
+  },
+  "eat_cookie": {
+    "frames": 4,
+    "frameWidth": 351,
+    "frameHeight": 432,
+    "fps": 3,
+    "loop": "loop",
+    "strip": "frames/eat_cookie.png"
+  },
+  "groom": {
+    "frames": 4,
+    "frameWidth": 350,
+    "frameHeight": 429,
+    "fps": 3,
+    "loop": "loop",
+    "strip": "frames/groom.png"
+  },
+  "idle_breathe": {
+    "frames": 4,
+    "frameWidth": 356,
+    "frameHeight": 448,
+    "fps": 2,
+    "loop": "pingpong",
+    "strip": "frames/idle_breathe.png"
+  },
+  "look_around": {
+    "frames": 4,
+    "frameWidth": 346,
+    "frameHeight": 437,
+    "fps": 2,
+    "loop": "loop",
+    "strip": "frames/look_around.png"
+  },
+  "read_book": {
+    "frames": 4,
+    "frameWidth": 352,
+    "frameHeight": 432,
+    "fps": 2,
+    "loop": "loop",
+    "strip": "frames/read_book.png"
+  },
+  "stretch": {
+    "frames": 4,
+    "frameWidth": 351,
+    "frameHeight": 424,
+    "fps": 3,
+    "loop": "once",
+    "strip": "frames/stretch.png"
+  }
+}

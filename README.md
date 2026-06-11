@@ -32,11 +32,13 @@ The raccoon is generated as local PNG pixel art from `scripts/generate-pixel-ass
 npm.cmd run assets
 ```
 
+Regenerate assets after pulling art changes. The sprite sheet, tray icon, and `sprite-manifest.json` are all produced by this script and are the build output of `scripts/generate-pixel-assets.js`.
+
 ## MVP Behavior
 
 - A transparent always-on-top raccoon appears automatically.
-- The companion uses local pixel-art PNG sprites, including idle, notice, carry, sweep, buried, celebrate, sleep, and thinking frames.
-- The raccoon has separate cursor-follow pupils, occasional idle tricks, and a tiny trash-bin animation.
+- The companion uses local pixel-art PNG sprites with a warm raccoon redraw and 14 states: idle, notice, carry, sweep, buried, celebrate, sleep, think, bin, walk, peek, pet, yawn, and wave.
+- The raccoon leans toward the cursor, greets with a wave on launch, drifts into ambient tricks while idle, and can be petted with a click-and-hold.
 - The raccoon can be dragged and its position is saved.
 - The tray can hide, show, pause, scan, open piles, or quit.
 - The app watches the default Downloads folder.

@@ -5,6 +5,7 @@
   "main": "src/main.js",
   "scripts": {
     "assets": "node scripts/generate-pixel-assets.js",
+    "extract": "node scripts/extract-frames.js",
     "start": "electron .",
     "smoke": "node scripts/smoke-test.js"
   },

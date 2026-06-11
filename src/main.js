@@ -19,9 +19,9 @@ const { SettingsStore } = require('./services/settingsStore');
 const { HistoryStore } = require('./services/historyStore');
 
 const COMPANION_WIDTH = 160;
-const COMPANION_HEIGHT = 180;
-const PANEL_WIDTH = 480;
-const PANEL_HEIGHT = 620;
+const COMPANION_HEIGHT = 220;
+const PANEL_WIDTH = 560;
+const PANEL_HEIGHT = 780;
 
 let settingsStore;
 let historyStore;
@@ -35,6 +35,7 @@ let currentScanResult;
 let dragStart;
 let lastNewFileNoticeAt = 0;
 let reactionTimers = [];
+let animationManifest = {};
 const pendingFilePaths = new Set();
 const singleInstanceLock = app.requestSingleInstanceLock();
 
@@ -46,6 +47,14 @@ function wait(ms) {
 
 function todayKey() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function loadAnimations() {
+  try {
+    animationManifest = JSON.parse(fs.readFileSync(path.join(__dirname, 'assets', 'animations', 'animations.json'), 'utf8'));
+  } catch {
+    animationManifest = {};
+  }
 }
 
 function createTrayIcon() {
@@ -110,6 +119,7 @@ function createCompanionWindow() {
 
   companionWindow.webContents.once('did-finish-load', async () => {
     startCursorTracker();
+    companionWindow.webContents.send('companion:animations', animationManifest);
 
     if (currentScanResult) {
       sendCompanionMood(currentScanResult);
@@ -167,7 +177,7 @@ function createPanelWindow() {
     minWidth: PANEL_WIDTH,
     minHeight: PANEL_HEIGHT,
     title: 'Download Raccoon',
-    backgroundColor: '#f3f7ff',
+    backgroundColor: '#7d9a6e',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -272,13 +282,26 @@ function getMoodFromScan(scanResult) {
   };
 }
 
+function bubbleForScan(scanResult) {
+  if (scanResult.missing) {
+    return "I can't find Downloads. click me";
+  }
+
+  const n = scanResult.totalFiles;
+  if (n === 0) return 'Downloads is spotless';
+  if (n <= 10) return `just ${n} crumbs here, all cozy`;
+  if (n <= 30) return `${n} files piling up. click me to tidy`;
+  if (n <= 75) return `${n} files getting snacky. click me`;
+  return `whoa, ${n} files. click me to help`;
+}
+
 function sendCompanionMood(scanResult, bubble) {
   const mood = getMoodFromScan(scanResult);
   sendCompanionUpdate({
     ...mood,
     fileCount: scanResult.totalFiles,
     totalBytes: scanResult.totalBytes,
-    bubble
+    bubble: bubble || bubbleForScan(scanResult)
   });
 }
 
@@ -373,6 +396,42 @@ function maybeSendDailyClutterNotice(scanResult) {
   sendCompanionMood(scanResult, 'raccoon is under the downloads mountain');
 }
 
+async function analyzeFolder() {
+  const result = await dialog.showOpenDialog(panelWindow || undefined, {
+    title: 'Analyze a folder for cleanup',
+    properties: ['openDirectory']
+  });
+
+  if (result.canceled || !result.filePaths[0]) {
+    return currentScanResult || null;
+  }
+
+  const folder = result.filePaths[0];
+  sendCompanionUpdate({ visualState: 'think', bubble: 'raccoon is rummaging through the folder' });
+  const scan = await scanDownloads({ ...settingsStore.get(), watchedFolder: folder });
+  currentScanResult = scan;
+  createPanelWindow();
+  sendPanelScan(scan);
+
+  const name = path.basename(folder) || folder;
+  if (scan.missing) {
+    sendCompanionUpdate({ visualState: 'notice', bubble: 'raccoon could not read that folder' });
+  } else if (scan.totalFiles > 0) {
+    sendCompanionUpdate({ visualState: 'notice', bubble: `found ${scan.totalFiles} things in ${name}` });
+  } else {
+    sendCompanionUpdate({ visualState: 'idle', bubble: `${name} looks clean` });
+  }
+
+  return scan;
+}
+
+function setPinned(pinned) {
+  settingsStore.update({ companionPinned: Boolean(pinned) });
+  updateTrayMenu();
+  sendSettingsUpdate();
+  return settingsStore.get();
+}
+
 function updateTrayMenu() {
   if (!tray) {
     return;
@@ -381,14 +440,14 @@ function updateTrayMenu() {
   const settings = settingsStore.get();
   const menu = Menu.buildFromTemplate([
     {
-      label: 'Show raccoon',
-      enabled: settings.companionHidden,
-      click: showCompanion
+      label: settings.companionHidden ? 'Show raccoon' : 'Hide raccoon',
+      click: () => (settings.companionHidden ? showCompanion() : hideCompanion())
     },
     {
-      label: 'Hide raccoon',
-      enabled: !settings.companionHidden,
-      click: hideCompanion
+      label: 'Pin raccoon in place',
+      type: 'checkbox',
+      checked: Boolean(settings.companionPinned),
+      click: (menuItem) => setPinned(menuItem.checked)
     },
     { type: 'separator' },
     {
@@ -396,18 +455,20 @@ function updateTrayMenu() {
       click: createPanelWindow
     },
     {
-      label: 'Scan now',
+      label: 'Scan downloads now',
       click: () => performScan('manual')
     },
     {
-      label: 'Pause watching',
-      type: 'checkbox',
-      checked: settings.watchingPaused,
-      click: (menuItem) => setWatchingPaused(menuItem.checked)
+      label: 'Analyze a folder...',
+      click: () => analyzeFolder()
+    },
+    {
+      label: settings.watchingPaused ? 'Resume watching downloads' : 'Pause watching downloads',
+      click: () => setWatchingPaused(!settings.watchingPaused)
     },
     { type: 'separator' },
     {
-      label: 'Quit',
+      label: 'Quit raccoon',
       click: () => app.quit()
     }
   ]);
@@ -436,16 +497,25 @@ function showCompanionContextMenu() {
       click: createPanelWindow
     },
     {
-      label: 'Scan now',
+      label: 'Scan downloads now',
       click: () => performScan('manual')
     },
     {
-      label: 'Hide raccoon',
-      click: hideCompanion
+      label: 'Analyze a folder...',
+      click: () => analyzeFolder()
+    },
+    { type: 'separator' },
+    {
+      label: settings.companionPinned ? 'Unpin raccoon' : 'Pin raccoon in place',
+      click: () => setPinned(!settings.companionPinned)
     },
     {
       label: settings.watchingPaused ? 'Resume watching' : 'Pause watching',
       click: () => setWatchingPaused(!settings.watchingPaused)
+    },
+    {
+      label: 'Hide raccoon',
+      click: hideCompanion
     },
     { type: 'separator' },
     {
@@ -635,6 +705,10 @@ function registerIpcHandlers() {
       return;
     }
 
+    if (settingsStore.get().companionPinned) {
+      return;
+    }
+
     const x = dragStart.bounds.x + Number(point.screenX) - dragStart.pointerX;
     const y = dragStart.bounds.y + Number(point.screenY) - dragStart.pointerY;
     companionWindow.setPosition(Math.round(x), Math.round(y));
@@ -652,6 +726,8 @@ function registerIpcHandlers() {
 
   ipcMain.handle('panel:get-scan', async () => currentScanResult || performScan('panel'));
   ipcMain.handle('panel:scan-now', async () => performScan('manual'));
+  ipcMain.handle('panel:analyze-folder', async () => analyzeFolder());
+  ipcMain.handle('companion:get-animations', () => animationManifest);
 
   ipcMain.handle('panel:sort-files', async (_event, payload) => {
     const fileIds = Array.isArray(payload?.fileIds) ? payload.fileIds : [];
@@ -707,6 +783,7 @@ function registerIpcHandlers() {
 
   ipcMain.handle('settings:get', () => settingsStore.get());
   ipcMain.handle('settings:set-paused', (_event, paused) => setWatchingPaused(paused));
+  ipcMain.handle('settings:set-pinned', (_event, pinned) => setPinned(pinned));
 }
 
 if (!singleInstanceLock) {
@@ -720,6 +797,8 @@ if (!singleInstanceLock) {
   app.whenReady().then(async () => {
     settingsStore = new SettingsStore(app.getPath('userData'), app.getPath('downloads'));
     historyStore = new HistoryStore(app.getPath('userData'));
+    Menu.setApplicationMenu(null);
+    loadAnimations();
     registerIpcHandlers();
     createTray();
     createCompanionWindow();
